@@ -1,0 +1,19 @@
+[0.770s] DEBUG:colcon:Command line arguments: ['/usr/bin/colcon', 'list', '-p', '--base-paths', '/home/orangepi/ros2_ws/src/ldlidar_sub', '--log-base', '/dev/null']
+[0.771s] DEBUG:colcon:Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='list', build_base='build', ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['/home/orangepi/ros2_ws/src/ldlidar_sub', '--log-base', '/dev/null'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=None, packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, topological_order=False, names_only=False, paths_only=True, topological_graph=False, topological_graph_dot=False, topological_graph_density=False, topological_graph_legend=False, topological_graph_dot_cluster=False, topological_graph_dot_include_skipped=False, mixin_files=None, mixin=None, verb_parser=<colcon_mixin.mixin.mixin_argument.MixinArgumentDecorator object at 0xffff99fe7b30>, verb_extension=<colcon_package_information.verb.list.ListVerb object at 0xffff99fe6d20>, main=<bound method ListVerb.main of <colcon_package_information.verb.list.ListVerb object at 0xffff99fe6d20>>, mixin_verb=('list',))
+[1.072s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) check parameters
+[1.074s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) check parameters
+[1.075s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) check parameters
+[1.075s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) check parameters
+[1.076s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) discover
+[1.078s] INFO:colcon.colcon_core.package_discovery:Crawling recursively for packages in '/home/orangepi/ros2_ws/src/ldlidar_sub', '/home/orangepi/ros2_ws/src/ldlidar_sub/--log-base', '/dev/null'
+[1.079s] Level 1:colcon.colcon_core.package_identification:_identify(/home/orangepi/ros2_ws/src/ldlidar_sub) by extensions ['ignore', 'ignore_ament_install']
+[1.081s] Level 1:colcon.colcon_core.package_identification:_identify(/home/orangepi/ros2_ws/src/ldlidar_sub) by extension 'ignore'
+[1.082s] Level 1:colcon.colcon_core.package_identification:_identify(/home/orangepi/ros2_ws/src/ldlidar_sub) by extension 'ignore_ament_install'
+[1.083s] Level 1:colcon.colcon_core.package_identification:_identify(/home/orangepi/ros2_ws/src/ldlidar_sub) by extensions ['colcon_pkg']
+[1.084s] Level 1:colcon.colcon_core.package_identification:_identify(/home/orangepi/ros2_ws/src/ldlidar_sub) by extension 'colcon_pkg'
+[1.088s] Level 1:colcon.colcon_core.package_identification:_identify(/home/orangepi/ros2_ws/src/ldlidar_sub) by extensions ['colcon_meta']
+[1.089s] Level 1:colcon.colcon_core.package_identification:_identify(/home/orangepi/ros2_ws/src/ldlidar_sub) by extension 'colcon_meta'
+[1.090s] Level 1:colcon.colcon_core.package_identification:_identify(/home/orangepi/ros2_ws/src/ldlidar_sub) by extensions ['ros']
+[1.091s] Level 1:colcon.colcon_core.package_identification:_identify(/home/orangepi/ros2_ws/src/ldlidar_sub) by extension 'ros'
+[1.303s] DEBUG:colcon.colcon_core.package_identification:Package '/home/orangepi/ros2_ws/src/ldlidar_sub' with type 'ros.ament_cmake' and name 'ldlidar_sub'
+[1.304s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) using defaults
