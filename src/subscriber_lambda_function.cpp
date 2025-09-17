@@ -19,6 +19,7 @@
 #include <thread>
 #include <chrono>
 #include <functional>
+#include <fstream>
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
@@ -29,6 +30,9 @@
 // #define SAVE_BAG       // Comment this line out to disable bag saving
 // #define SHOW_TIMESTAMP // Comment this line out to disable timestamp printing
 // #define SHOW_DATA      // Comment this line out to disable data printing
+#define ENABLE_LOG     // Comment this line out to disable logging to file
+
+#define TIMESTAMP_DIFF_THRESHOLD 50000000 // nanoseconds
 
 
 class LidarSubscriber : public rclcpp::Node
@@ -88,7 +92,7 @@ public:
 
     // Setup timer
     timer_ = this->create_wall_timer(
-      std::chrono::milliseconds(250), std::bind(&LidarSubscriber::timer_callback, this));
+      std::chrono::milliseconds(50), std::bind(&LidarSubscriber::timer_callback, this));
 
     RCLCPP_INFO(this->get_logger(), "LIDAR subscriber node has been started.");
   }
@@ -111,34 +115,112 @@ private:
 
   void timer_callback()
   {
-    if (scan_msg_)
+    if (scan_msg_ && orientation_msg_ && gps_msg_)
     {
-      RCLCPP_INFO(this->get_logger(), "Latest LiDAR scan received at time: %u.%u",
-        scan_msg_->header.stamp.sec, scan_msg_->header.stamp.nanosec);
-    }
-    else
-    {
-      RCLCPP_WARN(this->get_logger(), "No LiDAR scan data received yet.");
-    }
+      // Process the data
+      if (abs((scan_msg_->header.stamp.sec * 1000000000 +
+              (long int)scan_msg_->header.stamp.nanosec) -
+              (orientation_msg_->header.stamp.sec * 1000000000 +
+              (long int)orientation_msg_->header.stamp.nanosec)) < TIMESTAMP_DIFF_THRESHOLD &&
+          abs((scan_msg_->header.stamp.sec * 1000000000 +
+              (long int)scan_msg_->header.stamp.nanosec) -
+              (gps_msg_->header.stamp.sec * 1000000000 +
+              (long int)gps_msg_->header.stamp.nanosec)) < TIMESTAMP_DIFF_THRESHOLD)
+      {
+#ifdef ENABLE_LOG
+        std::ofstream LogFile("/home/orangepi/ros2_ws/src/ldlidar_sub/log_data.csv", std::ios::app);
 
-    if (orientation_msg_)
-    {
-      RCLCPP_INFO(this->get_logger(), "Latest orientation received at time: %u.%u",
-        orientation_msg_->header.stamp.sec, orientation_msg_->header.stamp.nanosec);
-    }
-    else
-    {
-      RCLCPP_WARN(this->get_logger(), "No orientation data received yet.");
-    }
+        if (LogFile.is_open())
+        {
+          // if file is empty add header
+          if (LogFile.tellp() == 0)
+          {
+            LogFile << "Date Time"
+                    << " Fix Latitude Longitude Altitude"
+                    << " Qw Qx Qy Qz"
+                    << " AngleMin AngleMax AngleIncrement RangeMin RangeMax RangesSize IntensitiesSize";
 
-    if (gps_msg_)
-    {
-      RCLCPP_INFO(this->get_logger(), "Latest GPS data received at time: %u.%u",
-        gps_msg_->header.stamp.sec, gps_msg_->header.stamp.nanosec);
-    }
-    else
-    {
-      RCLCPP_WARN(this->get_logger(), "No GPS data received yet.");
+            for (size_t i = 0; i < scan_msg_->ranges.size(); i++)
+            {
+              LogFile << " Range[" << i << "]";
+            }
+            for (size_t i = 0; i < scan_msg_->intensities.size(); i++)
+            {
+              LogFile << " Intensity[" << i << "]";
+            }
+            LogFile << std::endl;
+          }
+
+          // timestamp
+          auto now = std::chrono::system_clock::now();
+          auto duration = now.time_since_epoch();
+          auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+          millis = millis % 1000;
+
+          // date and time
+          time_t t = std::chrono::system_clock::to_time_t(now);
+          struct tm* tm = std::localtime(&t);
+
+          LogFile << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << ".";
+          if (millis < 100)
+            LogFile << "0";
+          if (millis < 10)
+            LogFile << "0";
+          LogFile << millis << " ";
+
+          // log data
+          LogFile << (int)gps_msg_->status.status
+                  << " " << gps_msg_->latitude
+                  << " " << gps_msg_->longitude
+                  << " " << gps_msg_->altitude
+                  << " " << orientation_msg_->quaternion.w
+                  << " " << orientation_msg_->quaternion.x
+                  << " " << orientation_msg_->quaternion.y
+                  << " " << orientation_msg_->quaternion.z
+                  << " " << scan_msg_->angle_min
+                  << " " << scan_msg_->angle_max
+                  << " " << scan_msg_->angle_increment
+                  << " " << scan_msg_->range_min
+                  << " " << scan_msg_->range_max
+                  << " " << scan_msg_->ranges.size()
+                  << " " << scan_msg_->intensities.size();
+
+          for (size_t i = 0; i < scan_msg_->ranges.size(); i++)
+          {
+            LogFile << " " << scan_msg_->ranges[i];
+          }
+          for (size_t i = 0; i < scan_msg_->intensities.size(); i++)
+          {
+            LogFile << " " << scan_msg_->intensities[i];
+          }
+
+          LogFile << std::endl;
+          LogFile.close();
+        }
+        else
+        {
+          RCLCPP_ERROR(this->get_logger(), "Error opening log file");
+        }
+#endif // ENABLE_LOG
+
+        RCLCPP_INFO(this->get_logger(), "Timestamps match. Data is synchronized.");
+
+        // Clear the messages after processing
+        scan_msg_.reset();
+        orientation_msg_.reset();
+        gps_msg_.reset();
+      }
+      else
+      {
+        RCLCPP_WARN(this->get_logger(), "Timestamps do not match. Data may be out of sync.");
+
+        RCLCPP_WARN(this->get_logger(), "scan timestamp: %u.%u",
+          scan_msg_->header.stamp.sec, scan_msg_->header.stamp.nanosec);
+        RCLCPP_WARN(this->get_logger(), "orientation timestamp: %u.%u",
+          orientation_msg_->header.stamp.sec, orientation_msg_->header.stamp.nanosec);
+        RCLCPP_WARN(this->get_logger(), "gps timestamp: %u.%u",
+          gps_msg_->header.stamp.sec, gps_msg_->header.stamp.nanosec);
+      }
     }
   }
 
