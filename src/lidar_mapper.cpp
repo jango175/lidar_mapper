@@ -30,15 +30,16 @@
 // #define SAVE_BAG       // Comment this line out to disable bag saving
 // #define SHOW_TIMESTAMP // Comment this line out to disable timestamp printing
 // #define SHOW_DATA      // Comment this line out to disable data printing
+// #define TEST_PERFORMANCE // Comment this line out to disable performance testing
 #define ENABLE_LOG     // Comment this line out to disable logging to file
 
-#define TIMESTAMP_DIFF_THRESHOLD 50000000 // nanoseconds
+#define TIMESTAMP_DIFF_THRESHOLD 25000000 // nanoseconds
 
 
-class LidarSubscriber : public rclcpp::Node
+class LidarMapper : public rclcpp::Node
 {
 public:
-  LidarSubscriber() : Node("lidar_subscriber")
+  LidarMapper() : Node("lidar_mapper")
   {
     // These define the callback groups
     callback_group_scan_subscriber_ = this->create_callback_group(
@@ -72,27 +73,27 @@ public:
     scan_subscriber_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
       "/ldlidar_node/scan",
       10,
-      std::bind(&LidarSubscriber::scanCallback, this, std::placeholders::_1),
+      std::bind(&LidarMapper::scanCallback, this, std::placeholders::_1),
       scan_sub_opt
     );
 
     orientation_subscriber_ = this->create_subscription<geometry_msgs::msg::QuaternionStamped>(
       "/msp_orientation",
       10,
-      std::bind(&LidarSubscriber::orientationCallback, this, std::placeholders::_1),
+      std::bind(&LidarMapper::orientationCallback, this, std::placeholders::_1),
       orientation_sub_opt
     );
 
     gps_subscriber_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
       "/msp_gps",
       10,
-      std::bind(&LidarSubscriber::gpsCallback, this, std::placeholders::_1),
+      std::bind(&LidarMapper::gpsCallback, this, std::placeholders::_1),
       gps_sub_opt
     );
 
     // Setup timer
     timer_ = this->create_wall_timer(
-      std::chrono::milliseconds(50), std::bind(&LidarSubscriber::timer_callback, this));
+      std::chrono::milliseconds(10), std::bind(&LidarMapper::timer_callback, this));
 
     RCLCPP_INFO(this->get_logger(), "LIDAR subscriber node has been started.");
   }
@@ -115,6 +116,10 @@ private:
 
   void timer_callback()
   {
+#ifdef TEST_PERFORMANCE
+    auto start = std::chrono::high_resolution_clock::now();
+#endif // TEST_PERFORMANCE
+
     if (scan_msg_ && orientation_msg_ && gps_msg_)
     {
       // Process the data
@@ -128,7 +133,7 @@ private:
               (long int)gps_msg_->header.stamp.nanosec)) < TIMESTAMP_DIFF_THRESHOLD)
       {
 #ifdef ENABLE_LOG
-        std::ofstream LogFile("/home/orangepi/ros2_ws/src/ldlidar_sub/log_data.csv", std::ios::app);
+        std::ofstream LogFile("/home/orangepi/ros2_ws/src/lidar_mapper/log_data.csv", std::ios::app);
 
         if (LogFile.is_open())
         {
@@ -222,6 +227,12 @@ private:
           gps_msg_->header.stamp.sec, gps_msg_->header.stamp.nanosec);
       }
     }
+
+#ifdef TEST_PERFORMANCE
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    RCLCPP_INFO(this->get_logger(), "Processing time: %ld microseconds", duration);
+#endif // TEST_PERFORMANCE
   }
 
 
@@ -382,11 +393,11 @@ int main(int argc, char* argv[])
 {
   rclcpp::init(argc, argv);
 
-  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Starting LIDAR subscriber node...");
+  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Starting LIDAR mapper node...");
 
   rclcpp::executors::MultiThreadedExecutor executor;
-  auto sub_node = std::make_shared<LidarSubscriber>();
-  executor.add_node(sub_node);
+  auto lidar_mapper_node = std::make_shared<LidarMapper>();
+  executor.add_node(lidar_mapper_node);
   executor.spin();
 
   rclcpp::shutdown();

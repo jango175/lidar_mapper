@@ -20,15 +20,15 @@ def generate_launch_description():
         name = 'msp_publisher_node'
     )
 
-    ldlidar_sub_node = Node(
-        package = 'ldlidar_sub',
-        executable = 'lidar_subscriber',
-        name = 'ldlidar_sub_node'
+    lidar_mapper_node = Node(
+        package = 'lidar_mapper',
+        executable = 'lidar_mapper',
+        name = 'lidar_mapper_node'
     )
 
     ld = LaunchDescription()
     ld.add_action(ldlidar_node)
     ld.add_action(msp_node)
-    ld.add_action(ldlidar_sub_node)
+    ld.add_action(lidar_mapper_node)
 
     return ld

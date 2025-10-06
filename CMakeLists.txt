@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.8)
-project(ldlidar_sub)
+project(lidar_mapper)
+
+SET(NODE_NAME lidar_mapper)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -12,11 +14,11 @@ find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
 
-add_executable(lidar_subscriber src/subscriber_lambda_function.cpp)
-ament_target_dependencies(lidar_subscriber rclcpp std_msgs sensor_msgs geometry_msgs rosbag2_cpp)
+add_executable(${NODE_NAME} src/lidar_mapper.cpp)
+ament_target_dependencies(${NODE_NAME} rclcpp std_msgs sensor_msgs geometry_msgs rosbag2_cpp)
 
 install(TARGETS
-  lidar_subscriber
+  ${NODE_NAME}
   DESTINATION lib/${PROJECT_NAME}
 )
 
