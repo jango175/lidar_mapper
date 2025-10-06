@@ -20,6 +20,7 @@
 #include <chrono>
 #include <functional>
 #include <fstream>
+#include <filesystem>
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
@@ -58,17 +59,29 @@ public:
     auto gps_sub_opt = rclcpp::SubscriptionOptions();
     gps_sub_opt.callback_group = callback_group_gps_subscriber_;
 
-#ifdef SAVE_BAG
     time_t timestamp = time(NULL);
     struct tm datetime = *localtime(&timestamp);
     char time_format[20];
     strftime(time_format, 20, "%m-%d-%y:%H:%M:%S", &datetime);
+
+#ifdef SAVE_BAG
     std::string bag_name = "lidar_bag_" + std::string(time_format);
 
     writer_ = std::make_unique<rosbag2_cpp::Writer>();
     writer_->open(bag_name);
     RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name.c_str());
 #endif // SAVE_BAG
+
+#ifdef ENABLE_LOG
+    std::string log_dir_ = "/home/orangepi/ros2_ws/src/lidar_mapper/lidar_logs/";
+    log_file_path_ = log_dir_ + "lidar_log_" + std::string(time_format) + ".csv";
+
+    // check if directory exists
+    if (!std::filesystem::exists(log_dir_))
+    {
+      std::filesystem::create_directories(log_dir_);
+    }
+#endif // ENABLE_LOG
 
     scan_subscriber_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
       "/ldlidar_node/scan",
@@ -99,6 +112,26 @@ public:
   }
 
 
+  ~LidarMapper()
+  {
+#ifdef SAVE_BAG
+    if (writer_)
+    {
+      writer_->close();
+      RCLCPP_INFO(this->get_logger(), "Bag file has been closed.");
+    }
+#endif // SAVE_BAG
+
+#ifdef ENABLE_LOG
+    // Ensure the log file is closed
+    if (log_file_.is_open())
+    {
+      log_file_.close();
+    }
+#endif // ENABLE_LOG
+  }
+
+
 private:
   rclcpp::CallbackGroup::SharedPtr callback_group_scan_subscriber_;
   rclcpp::CallbackGroup::SharedPtr callback_group_orientation_subscriber_;
@@ -112,6 +145,9 @@ private:
   sensor_msgs::msg::LaserScan::SharedPtr scan_msg_;
   geometry_msgs::msg::QuaternionStamped::SharedPtr orientation_msg_;
   sensor_msgs::msg::NavSatFix::SharedPtr gps_msg_;
+
+  std::string log_file_path_;
+  std::ofstream log_file_;
 
 
   void timer_callback()
@@ -133,27 +169,26 @@ private:
               (long int)gps_msg_->header.stamp.nanosec)) < TIMESTAMP_DIFF_THRESHOLD)
       {
 #ifdef ENABLE_LOG
-        std::ofstream LogFile("/home/orangepi/ros2_ws/src/lidar_mapper/log_data.csv", std::ios::app);
-
-        if (LogFile.is_open())
+        log_file_.open(log_file_path_, std::ios::app);
+        if (log_file_.is_open())
         {
           // if file is empty add header
-          if (LogFile.tellp() == 0)
+          if (log_file_.tellp() == 0)
           {
-            LogFile << "Date Time"
-                    << " Fix Latitude Longitude Altitude"
-                    << " Qw Qx Qy Qz"
-                    << " AngleMin AngleMax AngleIncrement RangeMin RangeMax RangesSize IntensitiesSize";
+            log_file_ << "Date Time"
+                      << " Fix Latitude Longitude Altitude"
+                      << " Qw Qx Qy Qz"
+                      << " AngleMin AngleMax AngleIncrement RangeMin RangeMax RangesSize IntensitiesSize";
 
             for (size_t i = 0; i < scan_msg_->ranges.size(); i++)
             {
-              LogFile << " Range[" << i << "]";
+              log_file_ << " Range[" << i << "]";
             }
             for (size_t i = 0; i < scan_msg_->intensities.size(); i++)
             {
-              LogFile << " Intensity[" << i << "]";
+              log_file_ << " Intensity[" << i << "]";
             }
-            LogFile << std::endl;
+            log_file_ << std::endl;
           }
 
           // timestamp
@@ -166,41 +201,41 @@ private:
           time_t t = std::chrono::system_clock::to_time_t(now);
           struct tm* tm = std::localtime(&t);
 
-          LogFile << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << ".";
+          log_file_ << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << ".";
           if (millis < 100)
-            LogFile << "0";
+            log_file_ << "0";
           if (millis < 10)
-            LogFile << "0";
-          LogFile << millis << " ";
+            log_file_ << "0";
+          log_file_ << millis << " ";
 
           // log data
-          LogFile << (int)gps_msg_->status.status
-                  << " " << gps_msg_->latitude
-                  << " " << gps_msg_->longitude
-                  << " " << gps_msg_->altitude
-                  << " " << orientation_msg_->quaternion.w
-                  << " " << orientation_msg_->quaternion.x
-                  << " " << orientation_msg_->quaternion.y
-                  << " " << orientation_msg_->quaternion.z
-                  << " " << scan_msg_->angle_min
-                  << " " << scan_msg_->angle_max
-                  << " " << scan_msg_->angle_increment
-                  << " " << scan_msg_->range_min
-                  << " " << scan_msg_->range_max
-                  << " " << scan_msg_->ranges.size()
-                  << " " << scan_msg_->intensities.size();
+          log_file_ << (int)gps_msg_->status.status
+                    << " " << gps_msg_->latitude
+                    << " " << gps_msg_->longitude
+                    << " " << gps_msg_->altitude
+                    << " " << orientation_msg_->quaternion.w
+                    << " " << orientation_msg_->quaternion.x
+                    << " " << orientation_msg_->quaternion.y
+                    << " " << orientation_msg_->quaternion.z
+                    << " " << scan_msg_->angle_min
+                    << " " << scan_msg_->angle_max
+                    << " " << scan_msg_->angle_increment
+                    << " " << scan_msg_->range_min
+                    << " " << scan_msg_->range_max
+                    << " " << scan_msg_->ranges.size()
+                    << " " << scan_msg_->intensities.size();
 
           for (size_t i = 0; i < scan_msg_->ranges.size(); i++)
           {
-            LogFile << " " << scan_msg_->ranges[i];
+            log_file_ << " " << scan_msg_->ranges[i];
           }
           for (size_t i = 0; i < scan_msg_->intensities.size(); i++)
           {
-            LogFile << " " << scan_msg_->intensities[i];
+            log_file_ << " " << scan_msg_->intensities[i];
           }
 
-          LogFile << std::endl;
-          LogFile.close();
+          log_file_ << std::endl;
+          log_file_.close();
         }
         else
         {
