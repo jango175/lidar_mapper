@@ -210,16 +210,21 @@ private:
 
           // log data
           log_file_ << (int)gps_msg_->status.status
+                    << std::fixed << std::setprecision(7)
                     << " " << gps_msg_->latitude
                     << " " << gps_msg_->longitude
+                    << std::setprecision(2)
                     << " " << gps_msg_->altitude
+                    << std::setprecision(15)
                     << " " << orientation_msg_->quaternion.w
                     << " " << orientation_msg_->quaternion.x
                     << " " << orientation_msg_->quaternion.y
                     << " " << orientation_msg_->quaternion.z
+                    << std::setprecision(9)
                     << " " << scan_msg_->angle_min
                     << " " << scan_msg_->angle_max
                     << " " << scan_msg_->angle_increment
+                    << std::setprecision(3)
                     << " " << scan_msg_->range_min
                     << " " << scan_msg_->range_max
                     << " " << scan_msg_->ranges.size()
