@@ -23,6 +23,7 @@
 #include <filesystem>
 
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/u_int16_multi_array.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "geometry_msgs/msg/quaternion_stamped.hpp"
@@ -43,6 +44,8 @@ public:
   LidarMapper() : Node("lidar_mapper")
   {
     // These define the callback groups
+    callback_group_rc_subscriber_ = this->create_callback_group(
+      rclcpp::CallbackGroupType::MutuallyExclusive);
     callback_group_scan_subscriber_ = this->create_callback_group(
       rclcpp::CallbackGroupType::MutuallyExclusive);
     callback_group_orientation_subscriber_ = this->create_callback_group(
@@ -52,6 +55,8 @@ public:
 
     // Each of these callback groups is basically a thread
     // Everything assigned to one of them gets bundled into the same thread
+    auto rc_sub_opt = rclcpp::SubscriptionOptions();
+    rc_sub_opt.callback_group = callback_group_rc_subscriber_;
     auto scan_sub_opt = rclcpp::SubscriptionOptions();
     scan_sub_opt.callback_group = callback_group_scan_subscriber_;
     auto orientation_sub_opt = rclcpp::SubscriptionOptions();
@@ -59,13 +64,10 @@ public:
     auto gps_sub_opt = rclcpp::SubscriptionOptions();
     gps_sub_opt.callback_group = callback_group_gps_subscriber_;
 
-    time_t timestamp = time(NULL);
-    struct tm datetime = *localtime(&timestamp);
-    char time_format[20];
-    strftime(time_format, 20, "%d-%m-%y_%H:%M:%S", &datetime);
+    get_current_timestamp(time_format_);
 
 #ifdef SAVE_BAG
-    std::string bag_name = "lidar_bag_" + std::string(time_format);
+    std::string bag_name = "lidar_bag_" + std::string(time_format_);
 
     writer_ = std::make_unique<rosbag2_cpp::Writer>();
     writer_->open(bag_name);
@@ -73,8 +75,7 @@ public:
 #endif // SAVE_BAG
 
 #ifdef ENABLE_LOG
-    std::string log_dir_ = "/home/orangepi/ros2_ws/src/lidar_mapper/lidar_logs/";
-    log_file_path_ = log_dir_ + "lidar_log_" + std::string(time_format) + ".csv";
+    log_file_path_ = log_dir_ + "lidar_log_" + std::string(time_format_) + ".csv";
 
     // check if directory exists
     if (!std::filesystem::exists(log_dir_))
@@ -82,6 +83,13 @@ public:
       std::filesystem::create_directories(log_dir_);
     }
 #endif // ENABLE_LOG
+
+    rc_subscriber_ = this->create_subscription<std_msgs::msg::UInt16MultiArray>(
+      "/msp_rc_channels",
+      10,
+      std::bind(&LidarMapper::rcCallback, this, std::placeholders::_1),
+      rc_sub_opt
+    );
 
     scan_subscriber_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
       "/ldlidar_node/scan",
@@ -133,21 +141,35 @@ public:
 
 
 private:
+  rclcpp::CallbackGroup::SharedPtr callback_group_rc_subscriber_;
   rclcpp::CallbackGroup::SharedPtr callback_group_scan_subscriber_;
   rclcpp::CallbackGroup::SharedPtr callback_group_orientation_subscriber_;
   rclcpp::CallbackGroup::SharedPtr callback_group_gps_subscriber_;
+  rclcpp::Subscription<std_msgs::msg::UInt16MultiArray>::SharedPtr rc_subscriber_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_subscriber_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr orientation_subscriber_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_subscriber_;
   std::unique_ptr<rosbag2_cpp::Writer> writer_;
   rclcpp::TimerBase::SharedPtr timer_;
 
+  std_msgs::msg::UInt16MultiArray::SharedPtr rc_msg_;
   sensor_msgs::msg::LaserScan::SharedPtr scan_msg_;
   geometry_msgs::msg::QuaternionStamped::SharedPtr orientation_msg_;
   sensor_msgs::msg::NavSatFix::SharedPtr gps_msg_;
 
   std::string log_file_path_;
   std::ofstream log_file_;
+  std::string log_dir_ = "/home/orangepi/ros2_ws/src/lidar_mapper/lidar_logs/";
+  char time_format_[20];
+  bool script_started = false;
+
+
+  void get_current_timestamp(char* time_format)
+  {
+    time_t timestamp = time(NULL);
+    struct tm datetime = *localtime(&timestamp);
+    strftime(time_format, 20, "%d-%m-%y_%H:%M:%S", &datetime);
+  }
 
 
   void timer_callback()
@@ -155,6 +177,27 @@ private:
 #ifdef TEST_PERFORMANCE
     auto start = std::chrono::high_resolution_clock::now();
 #endif // TEST_PERFORMANCE
+
+    if (rc_msg_)
+    {
+      if (rc_msg_->data[5] < 1800)
+      {
+        RCLCPP_WARN(this->get_logger(), "Script not started...");
+        script_started = false;
+        return;
+      }
+      else if (script_started == false)
+      {
+        script_started = true;
+        get_current_timestamp(time_format_);
+
+#ifdef ENABLE_LOG
+        log_file_path_ = log_dir_ + "lidar_log_" + std::string(time_format_) + ".csv";
+#endif // ENABLE_LOG
+      }
+    }
+    else
+      return;
 
     if (scan_msg_ && orientation_msg_ && gps_msg_)
     {
@@ -249,22 +292,22 @@ private:
 #endif // ENABLE_LOG
 
         RCLCPP_INFO(this->get_logger(), "Timestamps match. Data is synchronized.");
-        RCLCPP_INFO(this->get_logger(), "\tscan timestamp:\t%u.%u",
-          scan_msg_->header.stamp.sec, scan_msg_->header.stamp.nanosec);
-        RCLCPP_INFO(this->get_logger(), "\torientation timestamp:\t%u.%u",
-          orientation_msg_->header.stamp.sec, orientation_msg_->header.stamp.nanosec);
-        RCLCPP_INFO(this->get_logger(), "\tgps timestamp:\t%u.%u",
-          gps_msg_->header.stamp.sec, gps_msg_->header.stamp.nanosec);
-        RCLCPP_WARN(this->get_logger(), "\ts - o time difference:\t %f ms",
-          abs((scan_msg_->header.stamp.sec * 1000000000 +
-              (long int)scan_msg_->header.stamp.nanosec) -
-              (orientation_msg_->header.stamp.sec * 1000000000 +
-              (long int)orientation_msg_->header.stamp.nanosec)) / 1000000.0f);
-        RCLCPP_WARN(this->get_logger(), "\ts - g time difference:\t %f ms",
-          abs((scan_msg_->header.stamp.sec * 1000000000 +
-              (long int)scan_msg_->header.stamp.nanosec) -
-              (gps_msg_->header.stamp.sec * 1000000000 +
-              (long int)gps_msg_->header.stamp.nanosec)) / 1000000.0f);
+        // RCLCPP_INFO(this->get_logger(), "\tscan timestamp:\t%u.%u",
+        //   scan_msg_->header.stamp.sec, scan_msg_->header.stamp.nanosec);
+        // RCLCPP_INFO(this->get_logger(), "\torientation timestamp:\t%u.%u",
+        //   orientation_msg_->header.stamp.sec, orientation_msg_->header.stamp.nanosec);
+        // RCLCPP_INFO(this->get_logger(), "\tgps timestamp:\t%u.%u",
+        //   gps_msg_->header.stamp.sec, gps_msg_->header.stamp.nanosec);
+        // RCLCPP_WARN(this->get_logger(), "\ts - o time difference:\t %f ms",
+        //   abs((scan_msg_->header.stamp.sec * 1000000000 +
+        //       (long int)scan_msg_->header.stamp.nanosec) -
+        //       (orientation_msg_->header.stamp.sec * 1000000000 +
+        //       (long int)orientation_msg_->header.stamp.nanosec)) / 1000000.0f);
+        // RCLCPP_WARN(this->get_logger(), "\ts - g time difference:\t %f ms",
+        //   abs((scan_msg_->header.stamp.sec * 1000000000 +
+        //       (long int)scan_msg_->header.stamp.nanosec) -
+        //       (gps_msg_->header.stamp.sec * 1000000000 +
+        //       (long int)gps_msg_->header.stamp.nanosec)) / 1000000.0f);
 
         // Clear the messages after processing
         scan_msg_.reset();
@@ -289,6 +332,12 @@ private:
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     RCLCPP_INFO(this->get_logger(), "Processing time: %ld microseconds", duration);
 #endif // TEST_PERFORMANCE
+  }
+
+
+  void rcCallback(const std_msgs::msg::UInt16MultiArray::SharedPtr rc_msg)
+  {
+    rc_msg_ = rc_msg;
   }
 
 
