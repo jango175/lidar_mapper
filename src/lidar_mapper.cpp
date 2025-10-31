@@ -62,7 +62,7 @@ public:
     time_t timestamp = time(NULL);
     struct tm datetime = *localtime(&timestamp);
     char time_format[20];
-    strftime(time_format, 20, "%m-%d-%y:%H:%M:%S", &datetime);
+    strftime(time_format, 20, "%d-%m-%y_%H:%M:%S", &datetime);
 
 #ifdef SAVE_BAG
     std::string bag_name = "lidar_bag_" + std::string(time_format);
@@ -244,28 +244,44 @@ private:
         }
         else
         {
-          RCLCPP_ERROR(this->get_logger(), "Error opening log file");
+          RCLCPP_ERROR(this->get_logger(), "Error opening log file: %s", log_file_path_.c_str());
         }
 #endif // ENABLE_LOG
 
         RCLCPP_INFO(this->get_logger(), "Timestamps match. Data is synchronized.");
+        RCLCPP_INFO(this->get_logger(), "\tscan timestamp:\t%u.%u",
+          scan_msg_->header.stamp.sec, scan_msg_->header.stamp.nanosec);
+        RCLCPP_INFO(this->get_logger(), "\torientation timestamp:\t%u.%u",
+          orientation_msg_->header.stamp.sec, orientation_msg_->header.stamp.nanosec);
+        RCLCPP_INFO(this->get_logger(), "\tgps timestamp:\t%u.%u",
+          gps_msg_->header.stamp.sec, gps_msg_->header.stamp.nanosec);
+        RCLCPP_WARN(this->get_logger(), "\ts - o time difference:\t %f ms",
+          abs((scan_msg_->header.stamp.sec * 1000000000 +
+              (long int)scan_msg_->header.stamp.nanosec) -
+              (orientation_msg_->header.stamp.sec * 1000000000 +
+              (long int)orientation_msg_->header.stamp.nanosec)) / 1000000.0f);
+        RCLCPP_WARN(this->get_logger(), "\ts - g time difference:\t %f ms",
+          abs((scan_msg_->header.stamp.sec * 1000000000 +
+              (long int)scan_msg_->header.stamp.nanosec) -
+              (gps_msg_->header.stamp.sec * 1000000000 +
+              (long int)gps_msg_->header.stamp.nanosec)) / 1000000.0f);
 
         // Clear the messages after processing
         scan_msg_.reset();
         orientation_msg_.reset();
         gps_msg_.reset();
       }
-      else
-      {
-        RCLCPP_WARN(this->get_logger(), "Timestamps do not match. Data may be out of sync.");
+      // else
+      // {
+      //   RCLCPP_WARN(this->get_logger(), "Timestamps do not match. Data may be out of sync.");
 
-        RCLCPP_WARN(this->get_logger(), "scan timestamp: %u.%u",
-          scan_msg_->header.stamp.sec, scan_msg_->header.stamp.nanosec);
-        RCLCPP_WARN(this->get_logger(), "orientation timestamp: %u.%u",
-          orientation_msg_->header.stamp.sec, orientation_msg_->header.stamp.nanosec);
-        RCLCPP_WARN(this->get_logger(), "gps timestamp: %u.%u",
-          gps_msg_->header.stamp.sec, gps_msg_->header.stamp.nanosec);
-      }
+      //   RCLCPP_WARN(this->get_logger(), "scan timestamp: %u.%u",
+      //     scan_msg_->header.stamp.sec, scan_msg_->header.stamp.nanosec);
+      //   RCLCPP_WARN(this->get_logger(), "orientation timestamp: %u.%u",
+      //     orientation_msg_->header.stamp.sec, orientation_msg_->header.stamp.nanosec);
+      //   RCLCPP_WARN(this->get_logger(), "gps timestamp: %u.%u",
+      //     gps_msg_->header.stamp.sec, gps_msg_->header.stamp.nanosec);
+      // }
     }
 
 #ifdef TEST_PERFORMANCE
