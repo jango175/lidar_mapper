@@ -28,6 +28,7 @@
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "geometry_msgs/msg/quaternion_stamped.hpp"
 #include "rosbag2_cpp/writer.hpp"
+#include "ws2812b_control.hpp"
 
 // #define SAVE_BAG       // Comment this line out to disable bag saving
 // #define SHOW_TIMESTAMP // Comment this line out to disable timestamp printing
@@ -41,8 +42,10 @@
 class LidarMapper : public rclcpp::Node
 {
 public:
-  LidarMapper() : Node("lidar_mapper")
+  LidarMapper() : Node("lidar_mapper"), led_strip_("/dev/spidev1.0", 1)
   {
+    led_strip_.clear();
+
     // These define the callback groups
     callback_group_rc_subscriber_ = this->create_callback_group(
       rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -163,6 +166,8 @@ private:
   char time_format_[20];
   bool script_started = false;
 
+  WS2812B led_strip_;
+
 
   void get_current_timestamp(char* time_format)
   {
@@ -182,16 +187,23 @@ private:
     {
       if (rc_msg_->data[5] < 1800)
       {
-        RCLCPP_WARN(this->get_logger(), "Script not started...");
         script_started = false;
+
+        led_strip_.set_pixel(0, 255, 255, 255);
+        led_strip_.show();
+
+        RCLCPP_WARN(this->get_logger(), "Script not started...");
         return;
       }
       else if (script_started == false)
       {
         script_started = true;
-        get_current_timestamp(time_format_);
+
+        led_strip_.set_pixel(0, 255, 0, 0);
+        led_strip_.show();
 
 #ifdef ENABLE_LOG
+        get_current_timestamp(time_format_);
         log_file_path_ = log_dir_ + "lidar_log_" + std::string(time_format_) + ".csv";
 #endif // ENABLE_LOG
       }
@@ -288,6 +300,9 @@ private:
         else
         {
           RCLCPP_ERROR(this->get_logger(), "Error opening log file: %s", log_file_path_.c_str());
+
+          led_strip_.set_pixel(0, 0, 0, 255);
+          led_strip_.show();
         }
 #endif // ENABLE_LOG
 
