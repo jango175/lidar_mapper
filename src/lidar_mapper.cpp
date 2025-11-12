@@ -150,8 +150,6 @@ private:
 
   WS2812B led_strip_;
 
-  WS2812B led_strip_;
-
 
   void get_current_timestamp(char* time_format)
   {
@@ -181,8 +179,8 @@ private:
 
         led_strip_.set_pixel(0, 255, 0, 0);
         led_strip_.show();
-#endif // ENABLE_LOG
       }
+#endif // ENABLE_LOG
     }
     else
     {
