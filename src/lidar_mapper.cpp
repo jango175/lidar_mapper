@@ -47,6 +47,8 @@ public:
   LidarMapper() : Node("lidar_mapper"),
                   led_strip_("/dev/spidev1.0", 1)
   {
+    led_strip_.clear();
+
     // These define the callback groups
     callback_group_rc_sub_ = this->create_callback_group(
       rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -145,6 +147,8 @@ private:
   std::string log_dir_ = "/home/orangepi/ros2_ws/src/lidar_mapper/lidar_logs/";
   char time_format_[20];
   bool script_started_ = false;
+
+  WS2812B led_strip_;
 
   WS2812B led_strip_;
 

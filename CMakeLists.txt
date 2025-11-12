@@ -23,6 +23,8 @@ ament_target_dependencies(${NODE_NAME} rclcpp message_filters mavros_msgs sensor
 
 target_link_libraries(${NODE_NAME} ws2812b_control)
 
+target_link_libraries(${NODE_NAME} ws2812b_control)
+
 install(TARGETS
   ${NODE_NAME}
   DESTINATION lib/${PROJECT_NAME}
