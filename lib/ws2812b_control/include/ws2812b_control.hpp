@@ -163,6 +163,9 @@ public:
     transfer.delay_usecs = 0;
     transfer.bits_per_word = 8;
     transfer.cs_change = 0;
+    transfer.tx_nbits = 0;
+    transfer.rx_nbits = 0;
+    transfer.word_delay_usecs = 0;
     transfer.pad = 0;
 
     if (ioctl(spi_fd, SPI_IOC_MESSAGE(1), &transfer) < 0)

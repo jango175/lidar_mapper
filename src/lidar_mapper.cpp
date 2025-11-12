@@ -52,11 +52,23 @@ public:
     // These define the callback groups
     callback_group_rc_sub_ = this->create_callback_group(
       rclcpp::CallbackGroupType::MutuallyExclusive);
+    callback_group_scan_sub_ = this->create_callback_group(
+      rclcpp::CallbackGroupType::MutuallyExclusive);
+    callback_group_orientation_sub_ = this->create_callback_group(
+      rclcpp::CallbackGroupType::MutuallyExclusive);
+    callback_group_gps_sub_ = this->create_callback_group(
+      rclcpp::CallbackGroupType::MutuallyExclusive);
 
     // Each of these callback groups is basically a thread
     // Everything assigned to one of them gets bundled into the same thread
     auto rc_sub_opt = rclcpp::SubscriptionOptions();
     rc_sub_opt.callback_group = callback_group_rc_sub_;
+    auto scan_sub_opt = rclcpp::SubscriptionOptions();
+    scan_sub_opt.callback_group = callback_group_scan_sub_;
+    auto orientation_sub_opt = rclcpp::SubscriptionOptions();
+    orientation_sub_opt.callback_group = callback_group_orientation_sub_;
+    auto gps_sub_opt = rclcpp::SubscriptionOptions();
+    gps_sub_opt.callback_group = callback_group_gps_sub_;
 
     get_current_timestamp(time_format_);
 
@@ -78,28 +90,31 @@ public:
     }
 #endif // ENABLE_LOG
 
+    auto qos = rclcpp::SensorDataQoS();
+
     rc_sub_ = this->create_subscription<mavros_msgs::msg::RCIn>(
       "/msp/rc_channels",
-      10,
+      qos,
       std::bind(&LidarMapper::rcCallback, this, std::placeholders::_1),
       rc_sub_opt
     );
 
-    mf_scan_sub_.subscribe(this, "/ldlidar_node/scan");
-    mf_orientation_sub_.subscribe(this, "/msp/orientation");
-    mf_gps_sub_.subscribe(this, "/msp/gps");
+    mf_scan_sub_.subscribe(this, "/ldlidar_node/scan", rmw_qos_profile_sensor_data, scan_sub_opt);
+    mf_orientation_sub_.subscribe(this, "/msp/orientation", rmw_qos_profile_sensor_data, orientation_sub_opt);
+    mf_gps_sub_.subscribe(this, "/msp/gps", rmw_qos_profile_sensor_data, gps_sub_opt);
 
     sync_ = std::make_shared<message_filters::Synchronizer<ApproximateSyncPolicy>>(
-        ApproximateSyncPolicy(10),
-        mf_scan_sub_,
-        mf_orientation_sub_,
-        mf_gps_sub_
+      ApproximateSyncPolicy(10),
+      mf_scan_sub_,
+      mf_orientation_sub_,
+      mf_gps_sub_
     );
+
     sync_->setMaxIntervalDuration(rclcpp::Duration::from_seconds(TIMESTAMP_DIFF_THRESHOLD));
     sync_->registerCallback(std::bind(&LidarMapper::approximate_sync_callback, this,
-                            std::placeholders::_1,
-                            std::placeholders::_2,
-                            std::placeholders::_3));
+                                      std::placeholders::_1,
+                                      std::placeholders::_2,
+                                      std::placeholders::_3));
 
     RCLCPP_INFO(this->get_logger(), "LIDAR subscriber node has been started.");
   }
@@ -127,6 +142,10 @@ public:
 
 private:
   rclcpp::CallbackGroup::SharedPtr callback_group_rc_sub_;
+  rclcpp::CallbackGroup::SharedPtr callback_group_scan_sub_;
+  rclcpp::CallbackGroup::SharedPtr callback_group_orientation_sub_;
+  rclcpp::CallbackGroup::SharedPtr callback_group_gps_sub_;
+
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
   mavros_msgs::msg::RCIn::SharedPtr rc_msg_;
 
@@ -315,6 +334,14 @@ private:
       RCLCPP_WARN(this->get_logger(), "Script not started yet...");
 #endif // ENABLE_LOG
     }
+    else
+    {
+      if (script_started_ == false)
+      {
+        led_strip_.set_pixel(0, 100, 100, 100);
+        led_strip_.show();
+      }
+    }
   }
 };
 
@@ -325,7 +352,7 @@ int main(int argc, char* argv[])
 
   RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Starting LIDAR mapper node...");
 
-  rclcpp::executors::MultiThreadedExecutor executor;
+  rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 4);
   auto lidar_mapper_node = std::make_shared<LidarMapper>();
   executor.add_node(lidar_mapper_node);
   executor.spin();
