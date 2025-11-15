@@ -7,28 +7,31 @@ import os
 
 
 def generate_launch_description():
-    ldlidar_pkg = get_package_share_directory('ldlidar_node')
-    ldlidar_node = IncludeLaunchDescription(
-                    PythonLaunchDescriptionSource(
-                        os.path.join(ldlidar_pkg, 'launch', 'ldlidar_with_mgr.launch.py')
-        )
+  ldlidar_pkg = get_package_share_directory('ldlidar_node')
+  ldlidar_node = IncludeLaunchDescription(
+                  PythonLaunchDescriptionSource(
+                    os.path.join(ldlidar_pkg, 'launch', 'ldlidar_with_mgr.launch.py')
     )
+  )
 
-    msp_node = Node(
-        package = 'msp_controller_ros2',
-        executable = 'msp_publisher',
-        name = 'msp_publisher_node'
-    )
+  msp_node = Node(
+    package = 'msp_controller_ros2',
+    executable = 'msp_publisher',
+    name = 'msp_publisher_node'
+  )
 
-    lidar_mapper_node = Node(
-        package = 'lidar_mapper',
-        executable = 'lidar_mapper',
-        name = 'lidar_mapper_node'
-    )
+  lidar_mapper_node = Node(
+    package = 'lidar_mapper',
+    executable = 'lidar_mapper',
+    name = 'lidar_mapper_node',
+    parameters = [
+      {'timestamp_diff_threshold': 0.02}
+    ]
+  )
 
-    ld = LaunchDescription()
-    ld.add_action(ldlidar_node)
-    ld.add_action(msp_node)
-    ld.add_action(lidar_mapper_node)
+  ld = LaunchDescription()
+  ld.add_action(ldlidar_node)
+  ld.add_action(msp_node)
+  ld.add_action(lidar_mapper_node)
 
-    return ld
+  return ld

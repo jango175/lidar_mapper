@@ -38,8 +38,6 @@
 // #define SHOW_DATA      // Comment this line out to disable data printing
 #define ENABLE_LOG     // Comment this line out to disable logging to file
 
-#define TIMESTAMP_DIFF_THRESHOLD 0.025 // seconds
-
 
 class LidarMapper : public rclcpp::Node
 {
@@ -47,6 +45,10 @@ public:
   LidarMapper() : Node("lidar_mapper"),
                   led_strip_("/dev/spidev1.0", 1)
   {
+    auto param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    param_desc.description = "Threshold for timestamp difference in approximate sync (seconds)";
+    this->declare_parameter("timestamp_diff_threshold", 0.025, param_desc);
+
     led_strip_.clear();
 
     // These define the callback groups
@@ -110,7 +112,10 @@ public:
       mf_gps_sub_
     );
 
-    sync_->setMaxIntervalDuration(rclcpp::Duration::from_seconds(TIMESTAMP_DIFF_THRESHOLD));
+    double timestamp_diff_threshold = this->get_parameter("timestamp_diff_threshold").as_double();
+    RCLCPP_INFO(this->get_logger(), "Using timestamp difference threshold: %f seconds", timestamp_diff_threshold);
+
+    sync_->setMaxIntervalDuration(rclcpp::Duration::from_seconds(timestamp_diff_threshold));
     sync_->registerCallback(std::bind(&LidarMapper::approximate_sync_callback, this,
                                       std::placeholders::_1,
                                       std::placeholders::_2,
