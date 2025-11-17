@@ -33,11 +33,6 @@
 #include "rosbag2_cpp/writer.hpp"
 #include "ws2812b_control.hpp"
 
-// #define SAVE_BAG       // Comment this line out to disable bag saving
-// #define SHOW_TIMESTAMP // Comment this line out to disable timestamp printing
-// #define SHOW_DATA      // Comment this line out to disable data printing
-#define ENABLE_LOG     // Comment this line out to disable logging to file
-
 
 class LidarMapper : public rclcpp::Node
 {
@@ -45,11 +40,44 @@ public:
   LidarMapper() : Node("lidar_mapper"),
                   led_strip_("/dev/spidev1.0", 1)
   {
-    auto param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    param_desc.description = "Threshold for timestamp difference in approximate sync (seconds)";
-    this->declare_parameter("timestamp_diff_threshold", 0.025, param_desc);
+    auto timestamp_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    timestamp_param_desc.description = "Threshold for timestamp difference in approximate sync (seconds)";
+    this->declare_parameter("timestamp_diff_threshold", 0.025, timestamp_param_desc);
+
+    auto enable_bag_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    enable_bag_param_desc.description = "Enable or disable bag saving";
+    this->declare_parameter("enable_bag", false, enable_bag_param_desc);
+
+    auto enable_log_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    enable_log_param_desc.description = "Enable or disable bag saving";
+    this->declare_parameter("enable_log", false, enable_bag_param_desc);
 
     led_strip_.clear();
+
+    enable_bag_ = this->get_parameter("enable_bag").as_bool();
+    enable_log_ = this->get_parameter("enable_log").as_bool();
+
+    get_current_timestamp(time_format_);
+
+    if (enable_bag_)
+    {
+      bag_name_ = bag_dir_ + "lidar_bag_" + std::string(time_format_);
+
+      writer_ = std::make_unique<rosbag2_cpp::Writer>();
+      RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name_.c_str());
+    }
+
+    if (enable_log_)
+    {
+      log_file_path_ = log_dir_ + "lidar_log_" + std::string(time_format_) + ".csv";
+
+      // Check if directory exists
+      if (!std::filesystem::exists(log_dir_))
+      {
+        std::filesystem::create_directories(log_dir_);
+      }
+      RCLCPP_INFO(this->get_logger(), "Recording to log file: %s", log_file_path_.c_str());
+    }
 
     // These define the callback groups
     callback_group_rc_sub_ = this->create_callback_group(
@@ -71,26 +99,6 @@ public:
     orientation_sub_opt.callback_group = callback_group_orientation_sub_;
     auto gps_sub_opt = rclcpp::SubscriptionOptions();
     gps_sub_opt.callback_group = callback_group_gps_sub_;
-
-    get_current_timestamp(time_format_);
-
-#ifdef SAVE_BAG
-    std::string bag_name = "lidar_bag_" + std::string(time_format_);
-
-    writer_ = std::make_unique<rosbag2_cpp::Writer>();
-    writer_->open(bag_name);
-    RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name.c_str());
-#endif // SAVE_BAG
-
-#ifdef ENABLE_LOG
-    log_file_path_ = log_dir_ + "lidar_log_" + std::string(time_format_) + ".csv";
-
-    // check if directory exists
-    if (!std::filesystem::exists(log_dir_))
-    {
-      std::filesystem::create_directories(log_dir_);
-    }
-#endif // ENABLE_LOG
 
     auto qos = rclcpp::SensorDataQoS();
 
@@ -121,27 +129,30 @@ public:
                                       std::placeholders::_2,
                                       std::placeholders::_3));
 
-    RCLCPP_INFO(this->get_logger(), "LIDAR subscriber node has been started.");
+    RCLCPP_INFO(this->get_logger(), "LIDAR mapper node has been started!");
   }
 
 
   ~LidarMapper()
   {
-#ifdef SAVE_BAG
-    if (writer_)
+    // Close the bag writer if it was opened
+    if (enable_bag_ && writer_)
     {
-      writer_->close();
-      RCLCPP_INFO(this->get_logger(), "Bag file has been closed.");
+      try
+      {
+        writer_->close();
+      }
+      catch (const std::exception& e)
+      {
+        RCLCPP_WARN(this->get_logger(), "Bag file already closed (%s)", e.what());
+      }
     }
-#endif // SAVE_BAG
 
-#ifdef ENABLE_LOG
     // Ensure the log file is closed
-    if (log_file_.is_open())
+    if (enable_log_ && log_file_.is_open())
     {
       log_file_.close();
     }
-#endif // ENABLE_LOG
   }
 
 
@@ -164,11 +175,17 @@ private:
     sensor_msgs::msg::NavSatFix> ApproximateSyncPolicy;
   std::shared_ptr<message_filters::Synchronizer<ApproximateSyncPolicy>> sync_;
 
+  bool enable_bag_ = false;
+  bool enable_log_ = false;
+  std::string home_dir_ = std::getenv("HOME");
+
   std::unique_ptr<rosbag2_cpp::Writer> writer_;
+  std::string bag_dir_ = home_dir_ + "/ros2_ws/src/lidar_mapper/lidar_bags/";
+  std::string bag_name_;
 
   std::string log_file_path_;
   std::ofstream log_file_;
-  std::string log_dir_ = "/home/orangepi/ros2_ws/src/lidar_mapper/lidar_logs/";
+  std::string log_dir_ = home_dir_ + "/ros2_ws/src/lidar_mapper/lidar_logs/";
   char time_format_[20];
   bool script_started_ = false;
 
@@ -189,22 +206,43 @@ private:
   {
     if (rc_msg_)
     {
-#ifdef ENABLE_LOG
-      if (rc_msg_->channels[5] < 1800)
+      if (enable_log_ || enable_bag_)
       {
-        return;
-      }
-      else if (script_started_ == false)
-      {
-        script_started_ = true;
+        if (rc_msg_->channels[5] < 1800)
+        {
+          return;
+        }
+        else if (script_started_ == false)
+        {
+          script_started_ = true;
 
-        get_current_timestamp(time_format_);
-        log_file_path_ = log_dir_ + "lidar_log_" + std::string(time_format_) + ".csv";
+          get_current_timestamp(time_format_);
 
-        led_strip_.set_pixel(0, 255, 0, 0);
-        led_strip_.show();
+          if (enable_bag_)
+          {
+            bag_name_ = bag_dir_ + "lidar_bag_" + std::string(time_format_);
+            RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name_.c_str());
+
+            try
+            {
+              writer_->open(bag_name_);
+            }
+            catch (const std::exception& e)
+            {
+              RCLCPP_ERROR(this->get_logger(), "Failed to open bag writer (%s)", e.what());
+            }
+          }
+
+          if (enable_log_)
+          {
+            log_file_path_ = log_dir_ + "lidar_log_" + std::string(time_format_) + ".csv";
+            RCLCPP_INFO(this->get_logger(), "Recording to log file: %s", log_file_path_.c_str());
+          }
+
+          led_strip_.set_pixel(0, 255, 0, 0);
+          led_strip_.show();
+        }
       }
-#endif // ENABLE_LOG
     }
     else
     {
@@ -212,92 +250,116 @@ private:
       return;
     }
 
+    // Process the data
     if (scan_msg && orientation_msg && gps_msg)
     {
-      // Process the data
-#ifdef ENABLE_LOG
-      log_file_.open(log_file_path_, std::ios::app);
-      if (log_file_.is_open())
+      if (enable_bag_)
       {
-        // if file is empty add header
-        if (log_file_.tellp() == 0)
+        auto serialized_scan_msg = std::make_shared<rclcpp::SerializedMessage>();
+        auto serialized_orientation_msg = std::make_shared<rclcpp::SerializedMessage>();
+        auto serialized_gps_msg = std::make_shared<rclcpp::SerializedMessage>();
+
+        rclcpp::Serialization<sensor_msgs::msg::LaserScan> scan_serialization;
+        scan_serialization.serialize_message(scan_msg.get(), serialized_scan_msg.get());
+        writer_->write(serialized_scan_msg, "/ldlidar_node/scan",
+                      "sensor_msgs/msg/LaserScan", scan_msg->header.stamp);
+
+        rclcpp::Serialization<geometry_msgs::msg::QuaternionStamped> orientation_serialization;
+        orientation_serialization.serialize_message(orientation_msg.get(), serialized_orientation_msg.get());
+        writer_->write(serialized_orientation_msg, "/msp/orientation",
+                      "geometry_msgs/msg/QuaternionStamped", orientation_msg->header.stamp);
+
+        rclcpp::Serialization<sensor_msgs::msg::NavSatFix> gps_serialization;
+        gps_serialization.serialize_message(gps_msg.get(), serialized_gps_msg.get());
+        writer_->write(serialized_gps_msg, "/msp/gps",
+                      "sensor_msgs/msg/NavSatFix", gps_msg->header.stamp);
+      }
+
+      if (enable_log_)
+      {
+        log_file_.open(log_file_path_, std::ios::app);
+        if (log_file_.is_open())
         {
-          log_file_ << "Date Time"
-                    << " Fix Latitude Longitude Altitude"
-                    << " Qw Qx Qy Qz"
-                    << " AngleMin AngleMax AngleIncrement RangeMin RangeMax RangesSize IntensitiesSize";
+          // If file is empty add header
+          if (log_file_.tellp() == 0)
+          {
+            log_file_ << "Date Time"
+                      << " Fix Latitude Longitude Altitude"
+                      << " Qw Qx Qy Qz"
+                      << " AngleMin AngleMax AngleIncrement RangeMin RangeMax RangesSize IntensitiesSize";
+
+            for (size_t i = 0; i < scan_msg->ranges.size(); i++)
+            {
+              log_file_ << " Range[" << i << "]";
+            }
+            for (size_t i = 0; i < scan_msg->intensities.size(); i++)
+            {
+              log_file_ << " Intensity[" << i << "]";
+            }
+            log_file_ << std::endl;
+          }
+
+          // Timestamp
+          auto now = std::chrono::system_clock::now();
+          auto duration = now.time_since_epoch();
+          auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+          millis = millis % 1000;
+
+          // Date and time
+          time_t t = std::chrono::system_clock::to_time_t(now);
+          struct tm* tm = std::localtime(&t);
+
+          log_file_ << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << ".";
+          if (millis < 100)
+            log_file_ << "0";
+          if (millis < 10)
+            log_file_ << "0";
+          log_file_ << millis << " ";
+
+          // Log data
+          log_file_ << (int)gps_msg->status.status
+                    << std::fixed << std::setprecision(7)
+                    << " " << gps_msg->latitude
+                    << " " << gps_msg->longitude
+                    << std::setprecision(2)
+                    << " " << gps_msg->altitude
+                    << std::setprecision(15)
+                    << " " << orientation_msg->quaternion.w
+                    << " " << orientation_msg->quaternion.x
+                    << " " << orientation_msg->quaternion.y
+                    << " " << orientation_msg->quaternion.z
+                    << std::setprecision(9)
+                    << " " << scan_msg->angle_min
+                    << " " << scan_msg->angle_max
+                    << " " << scan_msg->angle_increment
+                    << std::setprecision(3)
+                    << " " << scan_msg->range_min
+                    << " " << scan_msg->range_max
+                    << " " << scan_msg->ranges.size()
+                    << " " << scan_msg->intensities.size();
 
           for (size_t i = 0; i < scan_msg->ranges.size(); i++)
           {
-            log_file_ << " Range[" << i << "]";
+            log_file_ << " " << scan_msg->ranges[i];
           }
           for (size_t i = 0; i < scan_msg->intensities.size(); i++)
           {
-            log_file_ << " Intensity[" << i << "]";
+            log_file_ << " " << scan_msg->intensities[i];
           }
+
           log_file_ << std::endl;
+          log_file_.close();
         }
-
-        // timestamp
-        auto now = std::chrono::system_clock::now();
-        auto duration = now.time_since_epoch();
-        auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-        millis = millis % 1000;
-
-        // date and time
-        time_t t = std::chrono::system_clock::to_time_t(now);
-        struct tm* tm = std::localtime(&t);
-
-        log_file_ << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << ".";
-        if (millis < 100)
-          log_file_ << "0";
-        if (millis < 10)
-          log_file_ << "0";
-        log_file_ << millis << " ";
-
-        // log data
-        log_file_ << (int)gps_msg->status.status
-                  << std::fixed << std::setprecision(7)
-                  << " " << gps_msg->latitude
-                  << " " << gps_msg->longitude
-                  << std::setprecision(2)
-                  << " " << gps_msg->altitude
-                  << std::setprecision(15)
-                  << " " << orientation_msg->quaternion.w
-                  << " " << orientation_msg->quaternion.x
-                  << " " << orientation_msg->quaternion.y
-                  << " " << orientation_msg->quaternion.z
-                  << std::setprecision(9)
-                  << " " << scan_msg->angle_min
-                  << " " << scan_msg->angle_max
-                  << " " << scan_msg->angle_increment
-                  << std::setprecision(3)
-                  << " " << scan_msg->range_min
-                  << " " << scan_msg->range_max
-                  << " " << scan_msg->ranges.size()
-                  << " " << scan_msg->intensities.size();
-
-        for (size_t i = 0; i < scan_msg->ranges.size(); i++)
+        else
         {
-          log_file_ << " " << scan_msg->ranges[i];
+          RCLCPP_ERROR(this->get_logger(), "Error opening log file: %s", log_file_path_.c_str());
+
+          led_strip_.set_pixel(0, 0, 0, 255);
+          led_strip_.show();
         }
-        for (size_t i = 0; i < scan_msg->intensities.size(); i++)
-        {
-          log_file_ << " " << scan_msg->intensities[i];
-        }
-
-        log_file_ << std::endl;
-        log_file_.close();
       }
-      else
-      {
-        RCLCPP_ERROR(this->get_logger(), "Error opening log file: %s", log_file_path_.c_str());
 
-        led_strip_.set_pixel(0, 0, 0, 255);
-        led_strip_.show();
-      }
-#endif // ENABLE_LOG
-
+      // // For debugging timestamp synchronization
       // RCLCPP_INFO(this->get_logger(), "Timestamps match. Data is synchronized.");
       // RCLCPP_INFO(this->get_logger(), "\tscan timestamp:\t%u.%u",
       //   scan_msg->header.stamp.sec, scan_msg->header.stamp.nanosec);
@@ -330,14 +392,27 @@ private:
 
     if (rc_msg_->channels[5] < 1800)
     {
+      if (enable_bag_ && script_started_ && writer_)
+      {
+        try
+        {
+          writer_->close();
+        }
+        catch (const std::exception& e)
+        {
+          RCLCPP_WARN(this->get_logger(), "Bag file not opened (%s)", e.what());
+        }
+      }
+
       script_started_ = false;
 
       led_strip_.set_pixel(0, 255, 255, 255);
       led_strip_.show();
 
-#ifdef ENABLE_LOG
-      RCLCPP_WARN(this->get_logger(), "Script not started yet...");
-#endif // ENABLE_LOG
+      if (enable_bag_ || enable_log_)
+      {
+        RCLCPP_WARN(this->get_logger(), "Script not started yet...");
+      }
     }
     else
     {

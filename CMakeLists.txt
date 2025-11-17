@@ -19,9 +19,14 @@ find_package(geometry_msgs REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
 
 add_executable(${NODE_NAME} src/lidar_mapper.cpp) 
-ament_target_dependencies(${NODE_NAME} rclcpp message_filters mavros_msgs sensor_msgs geometry_msgs rosbag2_cpp)
-
-target_link_libraries(${NODE_NAME} ws2812b_control)
+ament_target_dependencies(${NODE_NAME}
+  rclcpp
+  message_filters
+  mavros_msgs
+  sensor_msgs
+  geometry_msgs
+  rosbag2_cpp
+)
 
 target_link_libraries(${NODE_NAME} ws2812b_control)
 

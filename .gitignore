@@ -1,3 +1,5 @@
 .vscode/
 log/
 *.csv
+lidar_bags/
+lidar_logs/

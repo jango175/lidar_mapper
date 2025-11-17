@@ -25,7 +25,9 @@ def generate_launch_description():
     executable = 'lidar_mapper',
     name = 'lidar_mapper_node',
     parameters = [
-      {'timestamp_diff_threshold': 0.02}
+      {'timestamp_diff_threshold': 0.02},
+      {'enable_bag': True},
+      {'enable_log': True}
     ]
   )
 
