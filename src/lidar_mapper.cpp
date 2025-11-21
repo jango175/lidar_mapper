@@ -13,10 +13,10 @@
 // limitations under the License.
 
 #include <iostream>
+#include <iomanip>
 #include <string>
 #include <memory>
 #include <ctime>
-#include <thread>
 #include <chrono>
 #include <functional>
 #include <fstream>
@@ -49,8 +49,8 @@ public:
     this->declare_parameter("enable_bag", false, enable_bag_param_desc);
 
     auto enable_log_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    enable_log_param_desc.description = "Enable or disable bag saving";
-    this->declare_parameter("enable_log", false, enable_bag_param_desc);
+    enable_log_param_desc.description = "Enable or disable log saving";
+    this->declare_parameter("enable_log", false, enable_log_param_desc);
 
     led_strip_.clear();
 
@@ -79,39 +79,35 @@ public:
       RCLCPP_INFO(this->get_logger(), "Recording to log file: %s", log_file_path_.c_str());
     }
 
-    // These define the callback groups
-    callback_group_rc_sub_ = this->create_callback_group(
-      rclcpp::CallbackGroupType::MutuallyExclusive);
-    callback_group_scan_sub_ = this->create_callback_group(
-      rclcpp::CallbackGroupType::MutuallyExclusive);
-    callback_group_orientation_sub_ = this->create_callback_group(
-      rclcpp::CallbackGroupType::MutuallyExclusive);
-    callback_group_gps_sub_ = this->create_callback_group(
-      rclcpp::CallbackGroupType::MutuallyExclusive);
-
-    // Each of these callback groups is basically a thread
-    // Everything assigned to one of them gets bundled into the same thread
-    auto rc_sub_opt = rclcpp::SubscriptionOptions();
-    rc_sub_opt.callback_group = callback_group_rc_sub_;
-    auto scan_sub_opt = rclcpp::SubscriptionOptions();
-    scan_sub_opt.callback_group = callback_group_scan_sub_;
-    auto orientation_sub_opt = rclcpp::SubscriptionOptions();
-    orientation_sub_opt.callback_group = callback_group_orientation_sub_;
-    auto gps_sub_opt = rclcpp::SubscriptionOptions();
-    gps_sub_opt.callback_group = callback_group_gps_sub_;
-
     auto qos = rclcpp::SensorDataQoS();
 
     rc_sub_ = this->create_subscription<mavros_msgs::msg::RCIn>(
       "/msp/rc_channels",
       qos,
-      std::bind(&LidarMapper::rcCallback, this, std::placeholders::_1),
-      rc_sub_opt
+      std::bind(&LidarMapper::rc_callback, this, std::placeholders::_1)
     );
 
-    mf_scan_sub_.subscribe(this, "/ldlidar_node/scan", rmw_qos_profile_sensor_data, scan_sub_opt);
-    mf_orientation_sub_.subscribe(this, "/msp/orientation", rmw_qos_profile_sensor_data, orientation_sub_opt);
-    mf_gps_sub_.subscribe(this, "/msp/gps", rmw_qos_profile_sensor_data, gps_sub_opt);
+    scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
+      "/ldlidar_node/scan",
+      qos,
+      std::bind(&LidarMapper::scan_callback, this, std::placeholders::_1)
+    );
+
+    orientation_sub_ = this->create_subscription<geometry_msgs::msg::QuaternionStamped>(
+      "/msp/orientation",
+      qos,
+      std::bind(&LidarMapper::orientation_callback, this, std::placeholders::_1)
+    );
+
+    gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
+      "/msp/gps",
+      qos,
+      std::bind(&LidarMapper::gps_callback, this, std::placeholders::_1)
+    );
+
+    mf_scan_sub_.subscribe(this, "/ldlidar_node/scan", qos.get_rmw_qos_profile());
+    mf_orientation_sub_.subscribe(this, "/msp/orientation", qos.get_rmw_qos_profile());
+    mf_gps_sub_.subscribe(this, "/msp/gps", qos.get_rmw_qos_profile());
 
     sync_ = std::make_shared<message_filters::Synchronizer<ApproximateSyncPolicy>>(
       ApproximateSyncPolicy(10),
@@ -138,13 +134,14 @@ public:
     // Close the bag writer if it was opened
     if (enable_bag_ && writer_)
     {
-      try
+      if (writer_opened_)
       {
         writer_->close();
+        writer_opened_ = false;
       }
-      catch (const std::exception& e)
+      else
       {
-        RCLCPP_WARN(this->get_logger(), "Bag file already closed (%s)", e.what());
+        RCLCPP_WARN(this->get_logger(), "Bag file already closed");
       }
     }
 
@@ -157,13 +154,15 @@ public:
 
 
 private:
-  rclcpp::CallbackGroup::SharedPtr callback_group_rc_sub_;
-  rclcpp::CallbackGroup::SharedPtr callback_group_scan_sub_;
-  rclcpp::CallbackGroup::SharedPtr callback_group_orientation_sub_;
-  rclcpp::CallbackGroup::SharedPtr callback_group_gps_sub_;
-
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
-  mavros_msgs::msg::RCIn::SharedPtr rc_msg_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr orientation_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
+
+  mavros_msgs::msg::RCIn::SharedPtr last_rc_msg_;
+  sensor_msgs::msg::LaserScan::SharedPtr last_scan_msg_;
+  geometry_msgs::msg::QuaternionStamped::SharedPtr last_orientation_msg_;
+  sensor_msgs::msg::NavSatFix::SharedPtr last_gps_msg_;
 
   message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_scan_sub_;
   message_filters::Subscriber<geometry_msgs::msg::QuaternionStamped> mf_orientation_sub_;
@@ -177,9 +176,11 @@ private:
 
   bool enable_bag_ = false;
   bool enable_log_ = false;
-  std::string home_dir_ = std::getenv("HOME");
+  const char* home = std::getenv("HOME");
+  std::string home_dir_ = home ? std::string(home) : std::string(".");
 
   std::unique_ptr<rosbag2_cpp::Writer> writer_;
+  bool writer_opened_ = false;
   std::string bag_dir_ = home_dir_ + "/ros2_ws/src/lidar_mapper/lidar_bags/";
   std::string bag_name_;
 
@@ -204,11 +205,11 @@ private:
                                  const geometry_msgs::msg::QuaternionStamped::ConstSharedPtr& orientation_msg,
                                  const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg)
   {
-    if (rc_msg_)
+    if (last_rc_msg_)
     {
       if (enable_log_ || enable_bag_)
       {
-        if (rc_msg_->channels[5] < 1800)
+        if (last_rc_msg_->channels[5] < 1800)
         {
           return;
         }
@@ -223,19 +224,21 @@ private:
             bag_name_ = bag_dir_ + "lidar_bag_" + std::string(time_format_);
             RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name_.c_str());
 
-            try
+            if (writer_opened_ == false)
             {
               writer_->open(bag_name_);
+              writer_opened_ = true;
             }
-            catch (const std::exception& e)
+            else
             {
-              RCLCPP_ERROR(this->get_logger(), "Failed to open bag writer (%s)", e.what());
+              RCLCPP_ERROR(this->get_logger(), "Failed to open bag writer");
             }
           }
 
           if (enable_log_)
           {
             log_file_path_ = log_dir_ + "lidar_log_" + std::string(time_format_) + ".csv";
+            log_file_.open(log_file_path_, std::ios::app);
             RCLCPP_INFO(this->get_logger(), "Recording to log file: %s", log_file_path_.c_str());
           }
 
@@ -253,7 +256,7 @@ private:
     // Process the data
     if (scan_msg && orientation_msg && gps_msg)
     {
-      if (enable_bag_)
+      if (enable_bag_ && writer_opened_)
       {
         auto serialized_scan_msg = std::make_shared<rclcpp::SerializedMessage>();
         auto serialized_orientation_msg = std::make_shared<rclcpp::SerializedMessage>();
@@ -261,23 +264,22 @@ private:
 
         rclcpp::Serialization<sensor_msgs::msg::LaserScan> scan_serialization;
         scan_serialization.serialize_message(scan_msg.get(), serialized_scan_msg.get());
-        writer_->write(serialized_scan_msg, "/ldlidar_node/scan",
-                      "sensor_msgs/msg/LaserScan", scan_msg->header.stamp);
+        writer_->write(serialized_scan_msg, "/sync_data/ldlidar_node/scan",
+                       "sensor_msgs/msg/LaserScan", scan_msg->header.stamp);
 
         rclcpp::Serialization<geometry_msgs::msg::QuaternionStamped> orientation_serialization;
         orientation_serialization.serialize_message(orientation_msg.get(), serialized_orientation_msg.get());
-        writer_->write(serialized_orientation_msg, "/msp/orientation",
-                      "geometry_msgs/msg/QuaternionStamped", orientation_msg->header.stamp);
+        writer_->write(serialized_orientation_msg, "/sync_data/msp/orientation",
+                       "geometry_msgs/msg/QuaternionStamped", orientation_msg->header.stamp);
 
         rclcpp::Serialization<sensor_msgs::msg::NavSatFix> gps_serialization;
         gps_serialization.serialize_message(gps_msg.get(), serialized_gps_msg.get());
-        writer_->write(serialized_gps_msg, "/msp/gps",
-                      "sensor_msgs/msg/NavSatFix", gps_msg->header.stamp);
+        writer_->write(serialized_gps_msg, "/sync_data/msp/gps",
+                       "sensor_msgs/msg/NavSatFix", gps_msg->header.stamp);
       }
 
       if (enable_log_)
       {
-        log_file_.open(log_file_path_, std::ios::app);
         if (log_file_.is_open())
         {
           // If file is empty add header
@@ -348,7 +350,6 @@ private:
           }
 
           log_file_ << std::endl;
-          log_file_.close();
         }
         else
         {
@@ -386,22 +387,38 @@ private:
   }
 
 
-  void rcCallback(const mavros_msgs::msg::RCIn::SharedPtr rc_msg)
+  void rc_callback(const mavros_msgs::msg::RCIn::SharedPtr rc_msg)
   {
-    rc_msg_ = rc_msg;
+    last_rc_msg_ = rc_msg;
 
-    if (rc_msg_->channels[5] < 1800)
+    if (enable_bag_ && writer_opened_)
+    {
+      auto serialized_rc_msg = std::make_shared<rclcpp::SerializedMessage>();
+
+      rclcpp::Serialization<mavros_msgs::msg::RCIn> rc_serialization;
+      rc_serialization.serialize_message(rc_msg.get(), serialized_rc_msg.get());
+      writer_->write(serialized_rc_msg, "/msp/rc_channels",
+                     "mavros_msgs/msg/RCIn", rc_msg->header.stamp);
+    }
+
+    if (last_rc_msg_->channels[5] < 1800)
     {
       if (enable_bag_ && script_started_ && writer_)
       {
-        try
+        if (writer_opened_)
         {
           writer_->close();
+          writer_opened_ = false;
         }
-        catch (const std::exception& e)
+        else
         {
-          RCLCPP_WARN(this->get_logger(), "Bag file not opened (%s)", e.what());
+          RCLCPP_WARN(this->get_logger(), "Bag file not opened");
         }
+      }
+
+      if (enable_log_ && script_started_ && log_file_.is_open())
+      {
+        log_file_.close();
       }
 
       script_started_ = false;
@@ -423,6 +440,54 @@ private:
       }
     }
   }
+
+
+  void scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr scan_msg)
+  {
+    last_scan_msg_ = scan_msg;
+
+    if (enable_bag_ && writer_opened_)
+    {
+      auto serialized_scan_msg = std::make_shared<rclcpp::SerializedMessage>();
+
+      rclcpp::Serialization<sensor_msgs::msg::LaserScan> scan_serialization;
+      scan_serialization.serialize_message(scan_msg.get(), serialized_scan_msg.get());
+      writer_->write(serialized_scan_msg, "/ldlidar_node/scan",
+                     "sensor_msgs/msg/LaserScan", scan_msg->header.stamp);
+    }
+  }
+
+
+  void orientation_callback(const geometry_msgs::msg::QuaternionStamped::SharedPtr orientation_msg)
+  {
+    last_orientation_msg_ = orientation_msg;
+
+    if (enable_bag_ && writer_opened_)
+    {
+      auto serialized_orientation_msg = std::make_shared<rclcpp::SerializedMessage>();
+
+      rclcpp::Serialization<geometry_msgs::msg::QuaternionStamped> orientation_serialization;
+      orientation_serialization.serialize_message(orientation_msg.get(), serialized_orientation_msg.get());
+      writer_->write(serialized_orientation_msg, "/msp/orientation",
+                     "geometry_msgs/msg/QuaternionStamped", orientation_msg->header.stamp);
+    }
+  }
+
+
+  void gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr gps_msg)
+  {
+    last_gps_msg_ = gps_msg;
+
+    if (enable_bag_ && writer_opened_)
+    {
+      auto serialized_gps_msg = std::make_shared<rclcpp::SerializedMessage>();
+
+      rclcpp::Serialization<sensor_msgs::msg::NavSatFix> gps_serialization;
+      gps_serialization.serialize_message(gps_msg.get(), serialized_gps_msg.get());
+      writer_->write(serialized_gps_msg, "/msp/gps",
+                     "sensor_msgs/msg/NavSatFix", gps_msg->header.stamp);
+    }
+  }
 };
 
 
@@ -432,10 +497,7 @@ int main(int argc, char* argv[])
 
   RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Starting LIDAR mapper node...");
 
-  rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 4);
-  auto lidar_mapper_node = std::make_shared<LidarMapper>();
-  executor.add_node(lidar_mapper_node);
-  executor.spin();
+  rclcpp::spin(std::make_shared<LidarMapper>());
 
   rclcpp::shutdown();
 
