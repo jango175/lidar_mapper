@@ -27,7 +27,8 @@ def generate_launch_description():
     parameters = [
       {'timestamp_diff_threshold': 0.02},
       {'enable_bag': True},
-      {'enable_log': True}
+      {'enable_log': True},
+      {'use_ned': True}
     ]
   )
 

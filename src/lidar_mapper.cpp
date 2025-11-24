@@ -52,10 +52,20 @@ public:
     enable_log_param_desc.description = "Enable or disable log saving";
     this->declare_parameter("enable_log", false, enable_log_param_desc);
 
+    auto use_ned_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    use_ned_param_desc.description = "Use NED frame for orientation data (true) or ENU frame (false)";
+    this->declare_parameter("use_ned", true, use_ned_param_desc);
+
     led_strip_.clear();
 
     enable_bag_ = this->get_parameter("enable_bag").as_bool();
     enable_log_ = this->get_parameter("enable_log").as_bool();
+
+    bool use_ned = this->get_parameter("use_ned").as_bool();
+    if (use_ned)
+      orientation_topic_ = "/msp_orientation_ned";
+    else
+      orientation_topic_ = "/msp_orientation_enu";
 
     get_current_timestamp(time_format_);
 
@@ -82,32 +92,32 @@ public:
     auto qos = rclcpp::SensorDataQoS();
 
     rc_sub_ = this->create_subscription<mavros_msgs::msg::RCIn>(
-      "/msp/rc_channels",
+      rc_topic_,
       qos,
       std::bind(&LidarMapper::rc_callback, this, std::placeholders::_1)
     );
 
     scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
-      "/ldlidar_node/scan",
+      scan_topic_,
       qos,
       std::bind(&LidarMapper::scan_callback, this, std::placeholders::_1)
     );
 
     orientation_sub_ = this->create_subscription<geometry_msgs::msg::QuaternionStamped>(
-      "/msp/orientation",
+      orientation_topic_,
       qos,
       std::bind(&LidarMapper::orientation_callback, this, std::placeholders::_1)
     );
 
     gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
-      "/msp/gps",
+      gps_topic_,
       qos,
       std::bind(&LidarMapper::gps_callback, this, std::placeholders::_1)
     );
 
-    mf_scan_sub_.subscribe(this, "/ldlidar_node/scan", qos.get_rmw_qos_profile());
-    mf_orientation_sub_.subscribe(this, "/msp/orientation", qos.get_rmw_qos_profile());
-    mf_gps_sub_.subscribe(this, "/msp/gps", qos.get_rmw_qos_profile());
+    mf_scan_sub_.subscribe(this, scan_topic_, qos.get_rmw_qos_profile());
+    mf_orientation_sub_.subscribe(this, orientation_topic_, qos.get_rmw_qos_profile());
+    mf_gps_sub_.subscribe(this, gps_topic_, qos.get_rmw_qos_profile());
 
     sync_ = std::make_shared<message_filters::Synchronizer<ApproximateSyncPolicy>>(
       ApproximateSyncPolicy(10),
@@ -154,6 +164,11 @@ public:
 
 
 private:
+  std::string rc_topic_ = "/msp/rc_channels";
+  std::string scan_topic_ = "/ldlidar_node/scan";
+  std::string orientation_topic_ = "/msp_orientation_ned";
+  std::string gps_topic_ = "/msp/gps";
+
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr orientation_sub_;
@@ -264,17 +279,17 @@ private:
 
         rclcpp::Serialization<sensor_msgs::msg::LaserScan> scan_serialization;
         scan_serialization.serialize_message(scan_msg.get(), serialized_scan_msg.get());
-        writer_->write(serialized_scan_msg, "/sync_data/ldlidar_node/scan",
+        writer_->write(serialized_scan_msg, "/sync_data/" + scan_topic_,
                        "sensor_msgs/msg/LaserScan", scan_msg->header.stamp);
 
         rclcpp::Serialization<geometry_msgs::msg::QuaternionStamped> orientation_serialization;
         orientation_serialization.serialize_message(orientation_msg.get(), serialized_orientation_msg.get());
-        writer_->write(serialized_orientation_msg, "/sync_data/msp/orientation",
+        writer_->write(serialized_orientation_msg, "/sync_data/" + orientation_topic_,
                        "geometry_msgs/msg/QuaternionStamped", orientation_msg->header.stamp);
 
         rclcpp::Serialization<sensor_msgs::msg::NavSatFix> gps_serialization;
         gps_serialization.serialize_message(gps_msg.get(), serialized_gps_msg.get());
-        writer_->write(serialized_gps_msg, "/sync_data/msp/gps",
+        writer_->write(serialized_gps_msg, "/sync_data/" + gps_topic_,
                        "sensor_msgs/msg/NavSatFix", gps_msg->header.stamp);
       }
 
@@ -397,7 +412,7 @@ private:
 
       rclcpp::Serialization<mavros_msgs::msg::RCIn> rc_serialization;
       rc_serialization.serialize_message(rc_msg.get(), serialized_rc_msg.get());
-      writer_->write(serialized_rc_msg, "/msp/rc_channels",
+      writer_->write(serialized_rc_msg, rc_topic_,
                      "mavros_msgs/msg/RCIn", rc_msg->header.stamp);
     }
 
@@ -468,7 +483,7 @@ private:
 
       rclcpp::Serialization<geometry_msgs::msg::QuaternionStamped> orientation_serialization;
       orientation_serialization.serialize_message(orientation_msg.get(), serialized_orientation_msg.get());
-      writer_->write(serialized_orientation_msg, "/msp/orientation",
+      writer_->write(serialized_orientation_msg, orientation_topic_,
                      "geometry_msgs/msg/QuaternionStamped", orientation_msg->header.stamp);
     }
   }
@@ -484,7 +499,7 @@ private:
 
       rclcpp::Serialization<sensor_msgs::msg::NavSatFix> gps_serialization;
       gps_serialization.serialize_message(gps_msg.get(), serialized_gps_msg.get());
-      writer_->write(serialized_gps_msg, "/msp/gps",
+      writer_->write(serialized_gps_msg, gps_topic_,
                      "sensor_msgs/msg/NavSatFix", gps_msg->header.stamp);
     }
   }
