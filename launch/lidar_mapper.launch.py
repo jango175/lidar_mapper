@@ -14,10 +14,11 @@ def generate_launch_description():
     )
   )
 
-  msp_node = Node(
-    package = 'msp_controller_ros2',
-    executable = 'msp_publisher',
-    name = 'msp_publisher_node'
+  msp_pkg = get_package_share_directory('msp_controller_ros2')
+  msp_node = IncludeLaunchDescription(
+                  PythonLaunchDescriptionSource(
+                    os.path.join(msp_pkg, 'launch', 'msp_publisher.launch.py')
+    )
   )
 
   lidar_mapper_node = Node(
