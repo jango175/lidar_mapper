@@ -63,9 +63,9 @@ public:
 
     bool use_ned = this->get_parameter("use_ned").as_bool();
     if (use_ned)
-      orientation_topic_ = "/msp_orientation_ned";
+      orientation_topic_ = "/msp/orientation_ned";
     else
-      orientation_topic_ = "/msp_orientation_enu";
+      orientation_topic_ = "/msp/orientation_enu";
 
     get_current_timestamp(time_format_);
 
@@ -166,7 +166,7 @@ public:
 private:
   std::string rc_topic_ = "/msp/rc_channels";
   std::string scan_topic_ = "/ldlidar_node/scan";
-  std::string orientation_topic_ = "/msp_orientation_ned";
+  std::string orientation_topic_ = "/msp/orientation_ned";
   std::string gps_topic_ = "/msp/gps";
 
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
