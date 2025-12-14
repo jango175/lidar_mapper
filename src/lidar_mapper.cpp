@@ -279,17 +279,17 @@ private:
 
         rclcpp::Serialization<sensor_msgs::msg::LaserScan> scan_serialization;
         scan_serialization.serialize_message(scan_msg.get(), serialized_scan_msg.get());
-        writer_->write(serialized_scan_msg, "/sync_data/" + scan_topic_,
+        writer_->write(serialized_scan_msg, "/sync_data" + scan_topic_,
                        "sensor_msgs/msg/LaserScan", scan_msg->header.stamp);
 
         rclcpp::Serialization<geometry_msgs::msg::QuaternionStamped> orientation_serialization;
         orientation_serialization.serialize_message(orientation_msg.get(), serialized_orientation_msg.get());
-        writer_->write(serialized_orientation_msg, "/sync_data/" + orientation_topic_,
+        writer_->write(serialized_orientation_msg, "/sync_data" + orientation_topic_,
                        "geometry_msgs/msg/QuaternionStamped", orientation_msg->header.stamp);
 
         rclcpp::Serialization<sensor_msgs::msg::NavSatFix> gps_serialization;
         gps_serialization.serialize_message(gps_msg.get(), serialized_gps_msg.get());
-        writer_->write(serialized_gps_msg, "/sync_data/" + gps_topic_,
+        writer_->write(serialized_gps_msg, "/sync_data" + gps_topic_,
                        "sensor_msgs/msg/NavSatFix", gps_msg->header.stamp);
       }
 
