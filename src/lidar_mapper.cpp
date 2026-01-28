@@ -27,6 +27,7 @@
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "rosbag2_cpp/writer.hpp"
 #include "ws2812b_control.hpp"
 
@@ -85,15 +86,23 @@ public:
       std::bind(&LidarMapper::gps_callback, this, std::placeholders::_1)
     );
 
+    position_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+      position_topic_,
+      qos,
+      std::bind(&LidarMapper::position_callback, this, std::placeholders::_1)
+    );
+
     mf_scan_sub_.subscribe(this, scan_topic_, qos.get_rmw_qos_profile());
     mf_orientation_sub_.subscribe(this, orientation_topic_, qos.get_rmw_qos_profile());
     mf_gps_sub_.subscribe(this, gps_topic_, qos.get_rmw_qos_profile());
+    mf_position_sub_.subscribe(this, position_topic_, qos.get_rmw_qos_profile());
 
     sync_ = std::make_shared<message_filters::Synchronizer<ApproximateSyncPolicy>>(
       ApproximateSyncPolicy(10),
       mf_scan_sub_,
       mf_orientation_sub_,
-      mf_gps_sub_
+      mf_gps_sub_,
+      mf_position_sub_
     );
 
     double timestamp_diff_threshold = this->get_parameter("timestamp_diff_threshold").as_double();
@@ -103,7 +112,8 @@ public:
     sync_->registerCallback(std::bind(&LidarMapper::approximate_sync_callback, this,
                                       std::placeholders::_1,
                                       std::placeholders::_2,
-                                      std::placeholders::_3));
+                                      std::placeholders::_3,
+                                      std::placeholders::_4));
 
     RCLCPP_INFO(this->get_logger(), "LIDAR mapper node has been started!");
   }
@@ -132,25 +142,30 @@ private:
   std::string scan_topic_ = "/ldlidar_node/scan";
   std::string orientation_topic_ = "/mavros/imu/data";
   std::string gps_topic_ = "/mavros/global_position/global";
+  std::string position_topic_ = "mavros/local_position/pose";
 
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr orientation_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr position_sub_;
 
   mavros_msgs::msg::RCIn::SharedPtr last_rc_msg_;
   sensor_msgs::msg::LaserScan::SharedPtr last_scan_msg_;
   sensor_msgs::msg::Imu::SharedPtr last_orientation_msg_;
   sensor_msgs::msg::NavSatFix::SharedPtr last_gps_msg_;
+  geometry_msgs::msg::PoseStamped::SharedPtr last_position_msg_;
 
   message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_scan_sub_;
   message_filters::Subscriber<sensor_msgs::msg::Imu> mf_orientation_sub_;
   message_filters::Subscriber<sensor_msgs::msg::NavSatFix> mf_gps_sub_;
+  message_filters::Subscriber<geometry_msgs::msg::PoseStamped> mf_position_sub_;
 
   typedef message_filters::sync_policies::ApproximateTime<
     sensor_msgs::msg::LaserScan,
     sensor_msgs::msg::Imu,
-    sensor_msgs::msg::NavSatFix> ApproximateSyncPolicy;
+    sensor_msgs::msg::NavSatFix,
+    geometry_msgs::msg::PoseStamped> ApproximateSyncPolicy;
   std::shared_ptr<message_filters::Synchronizer<ApproximateSyncPolicy>> sync_;
 
   bool enable_bag_ = false;
@@ -178,7 +193,8 @@ private:
 
   void approximate_sync_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr& scan_msg,
                                  const sensor_msgs::msg::Imu::ConstSharedPtr& orientation_msg,
-                                 const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg)
+                                 const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
+                                 const geometry_msgs::msg::PoseStamped::ConstSharedPtr& position_msg)
   {
     if (last_rc_msg_)
     {
@@ -222,13 +238,14 @@ private:
     }
 
     // Process the data
-    if (scan_msg && orientation_msg && gps_msg)
+    if (scan_msg && orientation_msg && gps_msg && position_msg)
     {
       if (enable_bag_ && writer_opened_)
       {
         auto serialized_scan_msg = std::make_shared<rclcpp::SerializedMessage>();
         auto serialized_orientation_msg = std::make_shared<rclcpp::SerializedMessage>();
         auto serialized_gps_msg = std::make_shared<rclcpp::SerializedMessage>();
+        auto serialized_position_msg = std::make_shared<rclcpp::SerializedMessage>();
 
         rclcpp::Serialization<sensor_msgs::msg::LaserScan> scan_serialization;
         scan_serialization.serialize_message(scan_msg.get(), serialized_scan_msg.get());
@@ -244,26 +261,12 @@ private:
         gps_serialization.serialize_message(gps_msg.get(), serialized_gps_msg.get());
         writer_->write(serialized_gps_msg, "/sync_data" + gps_topic_,
                        "sensor_msgs/msg/NavSatFix", gps_msg->header.stamp);
-      }
 
-      // // For debugging timestamp synchronization
-      // RCLCPP_INFO(this->get_logger(), "Timestamps match. Data is synchronized.");
-      // RCLCPP_INFO(this->get_logger(), "\tscan timestamp:\t%u.%u",
-      //   scan_msg->header.stamp.sec, scan_msg->header.stamp.nanosec);
-      // RCLCPP_INFO(this->get_logger(), "\torientation timestamp:\t%u.%u",
-      //   orientation_msg->header.stamp.sec, orientation_msg->header.stamp.nanosec);
-      // RCLCPP_INFO(this->get_logger(), "\tgps timestamp:\t%u.%u",
-      //   gps_msg->header.stamp.sec, gps_msg->header.stamp.nanosec);
-      // RCLCPP_WARN(this->get_logger(), "\ts - o time difference:\t %f ms",
-      //   abs((scan_msg->header.stamp.sec * 1000000000 +
-      //       (long int)scan_msg->header.stamp.nanosec) -
-      //       (orientation_msg->header.stamp.sec * 1000000000 +
-      //       (long int)orientation_msg->header.stamp.nanosec)) / 1000000.0f);
-      // RCLCPP_WARN(this->get_logger(), "\ts - g time difference:\t %f ms",
-      //   abs((scan_msg->header.stamp.sec * 1000000000 +
-      //       (long int)scan_msg->header.stamp.nanosec) -
-      //       (gps_msg->header.stamp.sec * 1000000000 +
-      //       (long int)gps_msg->header.stamp.nanosec)) / 1000000.0f);
+        rclcpp::Serialization<geometry_msgs::msg::PoseStamped> position_serialization;
+        position_serialization.serialize_message(position_msg.get(), serialized_position_msg.get());
+        writer_->write(serialized_position_msg, "/sync_data" + position_topic_,
+                       "geometry_msgs/msg/PoseStamped", position_msg->header.stamp);
+      }
     }
     else
     {
@@ -367,6 +370,22 @@ private:
       gps_serialization.serialize_message(gps_msg.get(), serialized_gps_msg.get());
       writer_->write(serialized_gps_msg, gps_topic_,
                      "sensor_msgs/msg/NavSatFix", gps_msg->header.stamp);
+    }
+  }
+
+
+  void position_callback(const geometry_msgs::msg::PoseStamped::SharedPtr position_msg)
+  {
+    last_position_msg_ = position_msg;
+
+    if (enable_bag_ && writer_opened_)
+    {
+      auto serialized_position_msg = std::make_shared<rclcpp::SerializedMessage>();
+
+      rclcpp::Serialization<geometry_msgs::msg::PoseStamped> position_serialization;
+      position_serialization.serialize_message(position_msg.get(), serialized_position_msg.get());
+      writer_->write(serialized_position_msg, position_topic_,
+                     "geometry_msgs/msg/PoseStamped", position_msg->header.stamp);
     }
   }
 };
