@@ -179,6 +179,7 @@ private:
 
   char time_format_[20];
   bool script_started_ = false;
+  const long unsigned int script_start_channel_ = 9;
 
   WS2812B led_strip_;
 
@@ -196,11 +197,12 @@ private:
                                  const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg,
                                  const geometry_msgs::msg::PoseStamped::ConstSharedPtr& position_msg)
   {
-    if (last_rc_msg_)
+    if (last_rc_msg_ && last_rc_msg_->channels.size() > script_start_channel_)
     {
       if (enable_bag_)
       {
-        if (last_rc_msg_->channels.size() >= 6 && last_rc_msg_->channels[5] < 1800)
+        if (last_rc_msg_->channels[script_start_channel_] < 1300 ||
+            last_rc_msg_->channels[script_start_channel_] > 1700)
         {
           return;
         }
@@ -290,7 +292,11 @@ private:
                      "mavros_msgs/msg/RCIn", rc_msg->header.stamp);
     }
 
-    if (last_rc_msg_->channels.size() >= 6 && last_rc_msg_->channels[5] < 1800)
+    if (last_rc_msg_->channels.size() <= script_start_channel_)
+      return;
+
+    if (last_rc_msg_->channels[script_start_channel_] < 1300 ||
+        last_rc_msg_->channels[script_start_channel_] > 1700)
     {
       if (enable_bag_ && script_started_ && writer_)
       {
