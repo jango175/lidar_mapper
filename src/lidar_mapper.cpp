@@ -18,18 +18,15 @@
 #include <memory>
 #include <ctime>
 #include <chrono>
-#include <functional>
-#include <fstream>
-#include <filesystem>
 
 #include "rclcpp/rclcpp.hpp"
 #include "message_filters/subscriber.h"
 #include "message_filters/sync_policies/approximate_time.h"
 #include "message_filters/time_synchronizer.h"
 #include "mavros_msgs/msg/rc_in.hpp"
+#include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
-#include "geometry_msgs/msg/quaternion_stamped.hpp"
 #include "rosbag2_cpp/writer.hpp"
 #include "ws2812b_control.hpp"
 
@@ -48,24 +45,9 @@ public:
     enable_bag_param_desc.description = "Enable or disable bag saving";
     this->declare_parameter("enable_bag", false, enable_bag_param_desc);
 
-    auto enable_log_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    enable_log_param_desc.description = "Enable or disable log saving";
-    this->declare_parameter("enable_log", false, enable_log_param_desc);
-
-    auto use_ned_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    use_ned_param_desc.description = "Use NED frame for orientation data (true) or ENU frame (false)";
-    this->declare_parameter("use_ned", true, use_ned_param_desc);
-
     led_strip_.clear();
 
     enable_bag_ = this->get_parameter("enable_bag").as_bool();
-    enable_log_ = this->get_parameter("enable_log").as_bool();
-
-    bool use_ned = this->get_parameter("use_ned").as_bool();
-    if (use_ned)
-      orientation_topic_ = "/msp/orientation_ned";
-    else
-      orientation_topic_ = "/msp/orientation_enu";
 
     get_current_timestamp(time_format_);
 
@@ -75,18 +57,6 @@ public:
 
       writer_ = std::make_unique<rosbag2_cpp::Writer>();
       RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name_.c_str());
-    }
-
-    if (enable_log_)
-    {
-      log_file_path_ = log_dir_ + "lidar_log_" + std::string(time_format_) + ".csv";
-
-      // Check if directory exists
-      if (!std::filesystem::exists(log_dir_))
-      {
-        std::filesystem::create_directories(log_dir_);
-      }
-      RCLCPP_INFO(this->get_logger(), "Recording to log file: %s", log_file_path_.c_str());
     }
 
     auto qos = rclcpp::SensorDataQoS();
@@ -103,7 +73,7 @@ public:
       std::bind(&LidarMapper::scan_callback, this, std::placeholders::_1)
     );
 
-    orientation_sub_ = this->create_subscription<geometry_msgs::msg::QuaternionStamped>(
+    orientation_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
       orientation_topic_,
       qos,
       std::bind(&LidarMapper::orientation_callback, this, std::placeholders::_1)
@@ -154,43 +124,36 @@ public:
         RCLCPP_WARN(this->get_logger(), "Bag file already closed");
       }
     }
-
-    // Ensure the log file is closed
-    if (enable_log_ && log_file_.is_open())
-    {
-      log_file_.close();
-    }
   }
 
 
 private:
-  std::string rc_topic_ = "/msp/rc_channels";
+  std::string rc_topic_ = "/mavros/rc/in";
   std::string scan_topic_ = "/ldlidar_node/scan";
-  std::string orientation_topic_ = "/msp/orientation_ned";
-  std::string gps_topic_ = "/msp/gps";
+  std::string orientation_topic_ = "/mavros/imu/data";
+  std::string gps_topic_ = "/mavros/global_position/global";
 
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::QuaternionStamped>::SharedPtr orientation_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr orientation_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
 
   mavros_msgs::msg::RCIn::SharedPtr last_rc_msg_;
   sensor_msgs::msg::LaserScan::SharedPtr last_scan_msg_;
-  geometry_msgs::msg::QuaternionStamped::SharedPtr last_orientation_msg_;
+  sensor_msgs::msg::Imu::SharedPtr last_orientation_msg_;
   sensor_msgs::msg::NavSatFix::SharedPtr last_gps_msg_;
 
   message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_scan_sub_;
-  message_filters::Subscriber<geometry_msgs::msg::QuaternionStamped> mf_orientation_sub_;
+  message_filters::Subscriber<sensor_msgs::msg::Imu> mf_orientation_sub_;
   message_filters::Subscriber<sensor_msgs::msg::NavSatFix> mf_gps_sub_;
 
   typedef message_filters::sync_policies::ApproximateTime<
     sensor_msgs::msg::LaserScan,
-    geometry_msgs::msg::QuaternionStamped,
+    sensor_msgs::msg::Imu,
     sensor_msgs::msg::NavSatFix> ApproximateSyncPolicy;
   std::shared_ptr<message_filters::Synchronizer<ApproximateSyncPolicy>> sync_;
 
   bool enable_bag_ = false;
-  bool enable_log_ = false;
   const char* home = std::getenv("HOME");
   std::string home_dir_ = home ? std::string(home) : std::string(".");
 
@@ -199,9 +162,6 @@ private:
   std::string bag_dir_ = home_dir_ + "/ros2_ws/src/lidar_mapper/lidar_bags/";
   std::string bag_name_;
 
-  std::string log_file_path_;
-  std::ofstream log_file_;
-  std::string log_dir_ = home_dir_ + "/ros2_ws/src/lidar_mapper/lidar_logs/";
   char time_format_[20];
   bool script_started_ = false;
 
@@ -217,14 +177,14 @@ private:
 
 
   void approximate_sync_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr& scan_msg,
-                                 const geometry_msgs::msg::QuaternionStamped::ConstSharedPtr& orientation_msg,
+                                 const sensor_msgs::msg::Imu::ConstSharedPtr& orientation_msg,
                                  const sensor_msgs::msg::NavSatFix::ConstSharedPtr& gps_msg)
   {
     if (last_rc_msg_)
     {
-      if (enable_log_ || enable_bag_)
+      if (enable_bag_)
       {
-        if (last_rc_msg_->channels[5] < 1800)
+        if (last_rc_msg_->channels.size() >= 6 && last_rc_msg_->channels[5] < 1800)
         {
           return;
         }
@@ -248,13 +208,6 @@ private:
             {
               RCLCPP_ERROR(this->get_logger(), "Failed to open bag writer");
             }
-          }
-
-          if (enable_log_)
-          {
-            log_file_path_ = log_dir_ + "lidar_log_" + std::string(time_format_) + ".csv";
-            log_file_.open(log_file_path_, std::ios::app);
-            RCLCPP_INFO(this->get_logger(), "Recording to log file: %s", log_file_path_.c_str());
           }
 
           led_strip_.set_pixel(0, 255, 0, 0);
@@ -282,97 +235,15 @@ private:
         writer_->write(serialized_scan_msg, "/sync_data" + scan_topic_,
                        "sensor_msgs/msg/LaserScan", scan_msg->header.stamp);
 
-        rclcpp::Serialization<geometry_msgs::msg::QuaternionStamped> orientation_serialization;
+        rclcpp::Serialization<sensor_msgs::msg::Imu> orientation_serialization;
         orientation_serialization.serialize_message(orientation_msg.get(), serialized_orientation_msg.get());
         writer_->write(serialized_orientation_msg, "/sync_data" + orientation_topic_,
-                       "geometry_msgs/msg/QuaternionStamped", orientation_msg->header.stamp);
+                       "sensor_msgs/msg/Imu", orientation_msg->header.stamp);
 
         rclcpp::Serialization<sensor_msgs::msg::NavSatFix> gps_serialization;
         gps_serialization.serialize_message(gps_msg.get(), serialized_gps_msg.get());
         writer_->write(serialized_gps_msg, "/sync_data" + gps_topic_,
                        "sensor_msgs/msg/NavSatFix", gps_msg->header.stamp);
-      }
-
-      if (enable_log_)
-      {
-        if (log_file_.is_open())
-        {
-          // If file is empty add header
-          if (log_file_.tellp() == 0)
-          {
-            log_file_ << "Date Time"
-                      << " Fix Latitude Longitude Altitude"
-                      << " Qw Qx Qy Qz"
-                      << " AngleMin AngleMax AngleIncrement RangeMin RangeMax RangesSize IntensitiesSize";
-
-            for (size_t i = 0; i < scan_msg->ranges.size(); i++)
-            {
-              log_file_ << " Range[" << i << "]";
-            }
-            for (size_t i = 0; i < scan_msg->intensities.size(); i++)
-            {
-              log_file_ << " Intensity[" << i << "]";
-            }
-            log_file_ << std::endl;
-          }
-
-          // Timestamp
-          auto now = std::chrono::system_clock::now();
-          auto duration = now.time_since_epoch();
-          auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-          millis = millis % 1000;
-
-          // Date and time
-          time_t t = std::chrono::system_clock::to_time_t(now);
-          struct tm* tm = std::localtime(&t);
-
-          log_file_ << std::put_time(tm, "%Y-%m-%d %H:%M:%S") << ".";
-          if (millis < 100)
-            log_file_ << "0";
-          if (millis < 10)
-            log_file_ << "0";
-          log_file_ << millis << " ";
-
-          // Log data
-          log_file_ << (int)gps_msg->status.status
-                    << std::fixed << std::setprecision(7)
-                    << " " << gps_msg->latitude
-                    << " " << gps_msg->longitude
-                    << std::setprecision(2)
-                    << " " << gps_msg->altitude
-                    << std::setprecision(15)
-                    << " " << orientation_msg->quaternion.w
-                    << " " << orientation_msg->quaternion.x
-                    << " " << orientation_msg->quaternion.y
-                    << " " << orientation_msg->quaternion.z
-                    << std::setprecision(9)
-                    << " " << scan_msg->angle_min
-                    << " " << scan_msg->angle_max
-                    << " " << scan_msg->angle_increment
-                    << std::setprecision(3)
-                    << " " << scan_msg->range_min
-                    << " " << scan_msg->range_max
-                    << " " << scan_msg->ranges.size()
-                    << " " << scan_msg->intensities.size();
-
-          for (size_t i = 0; i < scan_msg->ranges.size(); i++)
-          {
-            log_file_ << " " << scan_msg->ranges[i];
-          }
-          for (size_t i = 0; i < scan_msg->intensities.size(); i++)
-          {
-            log_file_ << " " << scan_msg->intensities[i];
-          }
-
-          log_file_ << std::endl;
-        }
-        else
-        {
-          RCLCPP_ERROR(this->get_logger(), "Error opening log file: %s", log_file_path_.c_str());
-
-          led_strip_.set_pixel(0, 0, 0, 255);
-          led_strip_.show();
-        }
       }
 
       // // For debugging timestamp synchronization
@@ -416,7 +287,7 @@ private:
                      "mavros_msgs/msg/RCIn", rc_msg->header.stamp);
     }
 
-    if (last_rc_msg_->channels[5] < 1800)
+    if (last_rc_msg_->channels.size() >= 6 && last_rc_msg_->channels[5] < 1800)
     {
       if (enable_bag_ && script_started_ && writer_)
       {
@@ -431,17 +302,12 @@ private:
         }
       }
 
-      if (enable_log_ && script_started_ && log_file_.is_open())
-      {
-        log_file_.close();
-      }
-
       script_started_ = false;
 
       led_strip_.set_pixel(0, 255, 255, 255);
       led_strip_.show();
 
-      if (enable_bag_ || enable_log_)
+      if (enable_bag_)
       {
         RCLCPP_WARN(this->get_logger(), "Script not started yet...");
       }
@@ -467,13 +333,13 @@ private:
 
       rclcpp::Serialization<sensor_msgs::msg::LaserScan> scan_serialization;
       scan_serialization.serialize_message(scan_msg.get(), serialized_scan_msg.get());
-      writer_->write(serialized_scan_msg, "/ldlidar_node/scan",
+      writer_->write(serialized_scan_msg, scan_topic_,
                      "sensor_msgs/msg/LaserScan", scan_msg->header.stamp);
     }
   }
 
 
-  void orientation_callback(const geometry_msgs::msg::QuaternionStamped::SharedPtr orientation_msg)
+  void orientation_callback(const sensor_msgs::msg::Imu::SharedPtr orientation_msg)
   {
     last_orientation_msg_ = orientation_msg;
 
@@ -481,10 +347,10 @@ private:
     {
       auto serialized_orientation_msg = std::make_shared<rclcpp::SerializedMessage>();
 
-      rclcpp::Serialization<geometry_msgs::msg::QuaternionStamped> orientation_serialization;
+      rclcpp::Serialization<sensor_msgs::msg::Imu> orientation_serialization;
       orientation_serialization.serialize_message(orientation_msg.get(), serialized_orientation_msg.get());
       writer_->write(serialized_orientation_msg, orientation_topic_,
-                     "geometry_msgs/msg/QuaternionStamped", orientation_msg->header.stamp);
+                     "sensor_msgs/msg/Imu", orientation_msg->header.stamp);
     }
   }
 
