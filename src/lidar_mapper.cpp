@@ -179,7 +179,8 @@ private:
 
   char time_format_[20];
   bool script_started_ = false;
-  const long unsigned int script_start_channel_ = 9;
+  const long unsigned int script_start_channel_ = 7;
+  int script_start_state_ = 0;
 
   WS2812B led_strip_;
 
@@ -201,8 +202,7 @@ private:
     {
       if (enable_bag_)
       {
-        if (last_rc_msg_->channels[script_start_channel_] < 1300 ||
-            last_rc_msg_->channels[script_start_channel_] > 1700)
+        if (script_start_state_ != 2)
         {
           return;
         }
@@ -293,10 +293,42 @@ private:
     }
 
     if (last_rc_msg_->channels.size() <= script_start_channel_)
+    {
       return;
+    }
+    else
+    {
+      if (last_rc_msg_->channels[script_start_channel_] > 1700)
+      {
+        switch (script_start_state_)
+        {
+          case 0:
+            script_start_state_ = 1;
+            break;
+          case 2:
+            script_start_state_ = 3;
+            break;
+          default:
+            break;
+        }
+      }
+      else
+      {
+        switch (script_start_state_)
+        {
+          case 1:
+            script_start_state_ = 2;
+            break;
+          case 3:
+            script_start_state_ = 0;
+            break;
+          default:
+            break;
+        }
+      }
+    }
 
-    if (last_rc_msg_->channels[script_start_channel_] < 1300 ||
-        last_rc_msg_->channels[script_start_channel_] > 1700)
+    if (script_start_state_ != 2)
     {
       if (enable_bag_ && script_started_ && writer_)
       {
