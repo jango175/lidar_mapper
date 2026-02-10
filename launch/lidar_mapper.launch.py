@@ -21,7 +21,7 @@ def generate_launch_description():
     output = 'screen',
     parameters = [{
       'fcu_url': '/dev/ttyS5:500000',
-      'gcs_url': 'udp://@192.168.0.144:14550',
+      'gcs_url': 'udp://@10.234.177.188:14550',
       'tgt_system': 1,
       'tgt_component': 1,
       'fcu_protocol': 'v2.0'
@@ -34,7 +34,7 @@ def generate_launch_description():
       '/mavros/set_stream_rate', 'mavros_msgs/srv/StreamRate',
       '{stream_id: 0, message_rate: 10, on_off: true}'
     ],
-    output = 'screen'
+    output = 'log'
   )
 
   req_rc = ExecuteProcess(
@@ -43,7 +43,7 @@ def generate_launch_description():
       '/mavros/set_stream_rate', 'mavros_msgs/srv/StreamRate',
       '{stream_id: 3, message_rate: 20, on_off: true}'
     ],
-    output='screen'
+    output = 'log'
   )
 
   req_pos_gps = ExecuteProcess(
@@ -52,7 +52,7 @@ def generate_launch_description():
       '/mavros/set_stream_rate', 'mavros_msgs/srv/StreamRate',
       '{stream_id: 6, message_rate: 20, on_off: true}'
     ],
-    output='screen'
+    output = 'log'
   )
 
   req_imu = ExecuteProcess(
@@ -61,7 +61,7 @@ def generate_launch_description():
       '/mavros/set_stream_rate', 'mavros_msgs/srv/StreamRate',
       '{stream_id: 10, message_rate: 50, on_off: true}'
     ],
-    output='screen'
+    output = 'log'
   )
 
   delayed_base_request = TimerAction(
@@ -78,6 +78,7 @@ def generate_launch_description():
     package = 'lidar_mapper',
     executable = 'lidar_mapper',
     name = 'lidar_mapper_node',
+    output = 'screen',
     parameters = [
       {'timestamp_diff_threshold': 0.025},
       {'enable_bag': True},

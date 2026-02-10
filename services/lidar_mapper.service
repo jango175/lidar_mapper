@@ -1,0 +1,28 @@
+[Unit]
+Description=Lidar Mapper ROS2 Service
+After=network.target sound.target
+
+[Service]
+Type=simple
+User=orangepi
+Group=orangepi
+
+# Set your ROS_DOMAIN_ID here
+Environment="ROS_DOMAIN_ID=175"
+
+Environment="PYTHONUNBUFFERED=1"
+
+# Commands with full root privileges
+ExecStartPre=+/usr/bin/setserial /dev/ttyS5 low_latency
+ExecStartPre=+/usr/bin/setserial /dev/ttyUSB0 low_latency
+ExecStartPre=+/bin/bash -c 'echo 1 > /sys/bus/usb-serial/devices/ttyUSB0/latency_timer'
+
+# Main script
+ExecStart=/home/orangepi/ros2_ws/src/lidar_mapper/lidar_mapper_launch.sh
+
+# Restart settings
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
