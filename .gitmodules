@@ -1,0 +1,3 @@
+[submodule "msp_controller_ros2"]
+	path = msp_controller_ros2
+	url = git@github.com:jango175/msp_controller_ros2.git
