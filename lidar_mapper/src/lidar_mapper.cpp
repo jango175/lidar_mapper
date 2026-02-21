@@ -1,17 +1,3 @@
-// Copyright 2016 Open Source Robotics Foundation, Inc.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 #include <iostream>
 #include <iomanip>
 #include <string>
@@ -86,19 +72,19 @@ public:
       std::bind(&LidarMapper::gps_callback, this, std::placeholders::_1)
     );
 
-    position_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-      position_topic_,
+    pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+      pose_topic_,
       qos,
-      std::bind(&LidarMapper::position_callback, this, std::placeholders::_1)
+      std::bind(&LidarMapper::pose_callback, this, std::placeholders::_1)
     );
 
     mf_scan_sub_.subscribe(this, scan_topic_, qos.get_rmw_qos_profile());
-    mf_position_sub_.subscribe(this, position_topic_, qos.get_rmw_qos_profile());
+    mf_pose_sub_.subscribe(this, pose_topic_, qos.get_rmw_qos_profile());
 
     sync_ = std::make_shared<message_filters::Synchronizer<ApproximateSyncPolicy>>(
       ApproximateSyncPolicy(10),
       mf_scan_sub_,
-      mf_position_sub_
+      mf_pose_sub_
     );
 
     double timestamp_diff_threshold = this->get_parameter("timestamp_diff_threshold").as_double();
@@ -136,22 +122,22 @@ private:
   std::string scan_topic_ = "/ldlidar_node/scan";
   std::string orientation_topic_ = "/mavros/imu/data";
   std::string gps_topic_ = "/mavros/global_position/global";
-  std::string position_topic_ = "/mavros/local_position/pose";
+  std::string pose_topic_ = "/mavros/local_position/pose";
 
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr orientation_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr position_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
 
   mavros_msgs::msg::RCIn::SharedPtr last_rc_msg_;
   sensor_msgs::msg::LaserScan::SharedPtr last_scan_msg_;
   sensor_msgs::msg::Imu::SharedPtr last_orientation_msg_;
   sensor_msgs::msg::NavSatFix::SharedPtr last_gps_msg_;
-  geometry_msgs::msg::PoseStamped::SharedPtr last_position_msg_;
+  geometry_msgs::msg::PoseStamped::SharedPtr last_pose_msg_;
 
   message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_scan_sub_;
-  message_filters::Subscriber<geometry_msgs::msg::PoseStamped> mf_position_sub_;
+  message_filters::Subscriber<geometry_msgs::msg::PoseStamped> mf_pose_sub_;
 
   typedef message_filters::sync_policies::ApproximateTime<
     sensor_msgs::msg::LaserScan,
@@ -184,7 +170,7 @@ private:
 
 
   void approximate_sync_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr& scan_msg,
-                                 const geometry_msgs::msg::PoseStamped::ConstSharedPtr& position_msg)
+                                 const geometry_msgs::msg::PoseStamped::ConstSharedPtr& pose_msg)
   {
     if (last_rc_msg_ && last_rc_msg_->channels.size() > script_start_channel_)
     {
@@ -229,22 +215,22 @@ private:
     }
 
     // Process the data
-    if (scan_msg && position_msg)
+    if (scan_msg && pose_msg)
     {
       if (enable_bag_ && writer_opened_)
       {
         auto serialized_scan_msg = std::make_shared<rclcpp::SerializedMessage>();
-        auto serialized_position_msg = std::make_shared<rclcpp::SerializedMessage>();
+        auto serialized_pose_msg = std::make_shared<rclcpp::SerializedMessage>();
 
         rclcpp::Serialization<sensor_msgs::msg::LaserScan> scan_serialization;
         scan_serialization.serialize_message(scan_msg.get(), serialized_scan_msg.get());
         writer_->write(serialized_scan_msg, "/sync_data" + scan_topic_,
                        "sensor_msgs/msg/LaserScan", scan_msg->header.stamp);
 
-        rclcpp::Serialization<geometry_msgs::msg::PoseStamped> position_serialization;
-        position_serialization.serialize_message(position_msg.get(), serialized_position_msg.get());
-        writer_->write(serialized_position_msg, "/sync_data" + position_topic_,
-                       "geometry_msgs/msg/PoseStamped", position_msg->header.stamp);
+        rclcpp::Serialization<geometry_msgs::msg::PoseStamped> pose_serialization;
+        pose_serialization.serialize_message(pose_msg.get(), serialized_pose_msg.get());
+        writer_->write(serialized_pose_msg, "/sync_data" + pose_topic_,
+                       "geometry_msgs/msg/PoseStamped", pose_msg->header.stamp);
       }
     }
     else
@@ -389,18 +375,18 @@ private:
   }
 
 
-  void position_callback(const geometry_msgs::msg::PoseStamped::SharedPtr position_msg)
+  void pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr pose_msg)
   {
-    last_position_msg_ = position_msg;
+    last_pose_msg_ = pose_msg;
 
     if (enable_bag_ && writer_opened_)
     {
-      auto serialized_position_msg = std::make_shared<rclcpp::SerializedMessage>();
+      auto serialized_pose_msg = std::make_shared<rclcpp::SerializedMessage>();
 
-      rclcpp::Serialization<geometry_msgs::msg::PoseStamped> position_serialization;
-      position_serialization.serialize_message(position_msg.get(), serialized_position_msg.get());
-      writer_->write(serialized_position_msg, position_topic_,
-                     "geometry_msgs/msg/PoseStamped", position_msg->header.stamp);
+      rclcpp::Serialization<geometry_msgs::msg::PoseStamped> pose_serialization;
+      pose_serialization.serialize_message(pose_msg.get(), serialized_pose_msg.get());
+      writer_->write(serialized_pose_msg, pose_topic_,
+                     "geometry_msgs/msg/PoseStamped", pose_msg->header.stamp);
     }
   }
 };
