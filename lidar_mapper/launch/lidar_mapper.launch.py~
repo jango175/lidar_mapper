@@ -21,7 +21,7 @@ def generate_launch_description():
     output = 'screen',
     parameters = [{
       'fcu_url': '/dev/ttyS5:500000',
-      'gcs_url': 'udp://@10.201.250.188:14550',
+      'gcs_url': 'udp://@10.234.177.188:14550',
       'tgt_system': 1,
       'tgt_component': 1,
       'fcu_protocol': 'v2.0'
