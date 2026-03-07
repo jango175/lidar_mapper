@@ -17,6 +17,8 @@
 #include <tf2_ros/buffer.hpp>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
+#include <boost/qvm/quat.hpp>
+#include <boost/qvm/quat_operations.hpp>
 
 #include "ws2812b_control.hpp"
 
@@ -66,6 +68,20 @@ public:
     auto qos = rclcpp::SensorDataQoS();
 
     // tf
+    boost::qvm::quat<double> q_x = boost::qvm::rotx_quat(0.0);
+    boost::qvm::quat<double> q_y = boost::qvm::rotx_quat(30.0);
+    boost::qvm::quat<double> q_z = boost::qvm::rotx_quat(0.0);
+    boost::qvm::quat<double> q = q_z * q_x * q_y;
+    drone_lidar_tf_.header.frame_id = drone_link_;
+    drone_lidar_tf_.child_frame_id = lidar_link_;
+    drone_lidar_tf_.transform.translation.x = 0.088;
+    drone_lidar_tf_.transform.translation.y = 0.0;
+    drone_lidar_tf_.transform.translation.z = 0.0732;
+    drone_lidar_tf_.transform.rotation.w = q.a[0];
+    drone_lidar_tf_.transform.rotation.x = q.a[1];
+    drone_lidar_tf_.transform.rotation.y = q.a[2];
+    drone_lidar_tf_.transform.rotation.z = q.a[3];
+
     auto timer_interface = std::make_shared<tf2_ros::CreateTimerROS>(
       this->get_node_base_interface(),
       this->get_node_timers_interface()
@@ -151,6 +167,7 @@ private:
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   const std::string world_link_ = "map";
+  const std::string drone_link_ = "drone_base_link";
   const std::string lidar_link_ = "ldlidar_link";
 
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
@@ -159,6 +176,7 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
 
+  geometry_msgs::msg::TransformStamped drone_lidar_tf_;
   message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_scan_sub_;
   std::shared_ptr<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>> mf_tf2_;
 
@@ -383,7 +401,7 @@ private:
     geometry_msgs::msg::TransformStamped world_drone_tf;
     world_drone_tf.header.stamp = pose_msg->header.stamp;
     world_drone_tf.header.frame_id = world_link_;
-    world_drone_tf.child_frame_id = lidar_link_;
+    world_drone_tf.child_frame_id = drone_link_;
     world_drone_tf.transform.translation.x = pose_msg->pose.position.x;
     world_drone_tf.transform.translation.y = pose_msg->pose.position.y;
     world_drone_tf.transform.translation.z = pose_msg->pose.position.z;
@@ -392,7 +410,11 @@ private:
     world_drone_tf.transform.rotation.y = pose_msg->pose.orientation.y;
     world_drone_tf.transform.rotation.z = pose_msg->pose.orientation.z;
 
+    // update just stamp
+    drone_lidar_tf_.header.stamp = pose_msg->header.stamp;
+
     tf_broadcaster_->sendTransform(world_drone_tf);
+    tf_broadcaster_->sendTransform(drone_lidar_tf_);
 
     if (enable_bag_ && writer_opened_)
     {
