@@ -34,6 +34,26 @@ def generate_launch_description():
         'lifecycle_mgr_slam.yaml'
     )
 
+    # URDF path
+    urdf_file_name = 'ldlidar_descr.urdf.xml'
+    urdf = os.path.join(
+        get_package_share_directory('ldlidar_node'),
+        'urdf',
+        urdf_file_name)
+    with open(urdf, 'r') as infp:
+        robot_desc = infp.read()
+
+    # Robot State Publisher node
+    rsp_node = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        namespace=node_ns,
+        name='ldlidar_state_publisher',
+        output='screen',
+        parameters=[{'robot_description': robot_desc}],
+        arguments=[urdf]
+    )
+
     # SLAM Toolbox configuration for LDLidar
     slam_config_path = os.path.join(
         get_package_share_directory('ldlidar_node'),

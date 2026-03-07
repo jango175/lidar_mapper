@@ -1,7 +1,7 @@
-#include <rclcpp/logging.hpp>
 #include <string>
 #include <ctime>
 #include <rclcpp/node.hpp>
+#include <rclcpp/logging.hpp>
 #include <mavros_msgs/msg/rc_in.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <laser_geometry/laser_geometry.hpp>
@@ -29,6 +29,10 @@ public:
   LidarMapper() : Node("lidar_mapper"),
                   led_strip_("/dev/spidev1.0", 1)
   {
+    auto lidar_mount_angle_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    lidar_mount_angle_param_desc.description = "LIDAR mount angle in degrees";
+    this->declare_parameter("lidar_mount_angle_deg", 30.0, lidar_mount_angle_param_desc);
+
     auto timestamp_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     timestamp_param_desc.description = "Threshold for timestamp difference in approximate sync (seconds)";
     this->declare_parameter("timestamp_diff_threshold", 0.15, timestamp_param_desc);
@@ -40,6 +44,8 @@ public:
     auto enable_bag_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     enable_bag_param_desc.description = "Enable or disable bag saving";
     this->declare_parameter("enable_bag", false, enable_bag_param_desc);
+
+    double lidar_mount_angle_deg = this->get_parameter("lidar_mount_angle_deg").as_double();
 
     enable_bag_ = this->get_parameter("enable_bag").as_bool();
     if (enable_bag_)
@@ -69,9 +75,9 @@ public:
 
     // tf
     boost::qvm::quat<double> q_x = boost::qvm::rotx_quat(0.0);
-    boost::qvm::quat<double> q_y = boost::qvm::rotx_quat(30.0);
-    boost::qvm::quat<double> q_z = boost::qvm::rotx_quat(0.0);
-    boost::qvm::quat<double> q = q_z * q_x * q_y;
+    boost::qvm::quat<double> q_y = boost::qvm::roty_quat(lidar_mount_angle_deg * M_PI / 180.0);
+    boost::qvm::quat<double> q_z = boost::qvm::rotz_quat(0.0);
+    boost::qvm::quat<double> q = q_z * q_y * q_x;
     drone_lidar_tf_.header.frame_id = drone_link_;
     drone_lidar_tf_.child_frame_id = lidar_link_;
     drone_lidar_tf_.transform.translation.x = 0.088;

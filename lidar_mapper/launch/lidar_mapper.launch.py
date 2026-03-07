@@ -80,6 +80,7 @@ def generate_launch_description():
     name = 'lidar_mapper_node',
     output = 'screen',
     parameters = [
+      {'lidar_mount_angle_deg': 30.0},
       {'timestamp_diff_threshold': 0.15},
       {'interpolation_timestamp_threshold': 0.11}, # should be smaller than timestamp_diff_threshold
       {'enable_bag': True},
