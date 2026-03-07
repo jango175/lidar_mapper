@@ -17,6 +17,8 @@ find_package(mavros_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
+find_package(laser_geometry REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 add_executable(${NODE_NAME} src/lidar_mapper.cpp) 
 ament_target_dependencies(${NODE_NAME}
@@ -26,6 +28,8 @@ ament_target_dependencies(${NODE_NAME}
   sensor_msgs
   geometry_msgs
   rosbag2_cpp
+  laser_geometry
+  tf2_ros
 )
 
 target_link_libraries(${NODE_NAME} ws2812b_control)

@@ -1,20 +1,23 @@
-#include <iostream>
-#include <iomanip>
+#include <rclcpp/logging.hpp>
 #include <string>
-#include <memory>
 #include <ctime>
-#include <chrono>
+#include <rclcpp/node.hpp>
+#include <mavros_msgs/msg/rc_in.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <laser_geometry/laser_geometry.hpp>
+#include <sensor_msgs/msg/laser_scan.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <rosbag2_cpp/writer.hpp>
+#include <tf2_ros/message_filter.hpp>
+#include <tf2_ros/create_timer_ros.hpp>
+#include <tf2_ros/transform_broadcaster.hpp>
+#include <tf2_ros/transform_listener.hpp>
+#include <tf2_ros/buffer.hpp>
+#include <message_filters/subscriber.h>
+#include <message_filters/sync_policies/approximate_time.h>
 
-#include "rclcpp/rclcpp.hpp"
-#include "message_filters/subscriber.h"
-#include "message_filters/sync_policies/approximate_time.h"
-#include "message_filters/time_synchronizer.h"
-#include "mavros_msgs/msg/rc_in.hpp"
-#include "sensor_msgs/msg/imu.hpp"
-#include "sensor_msgs/msg/laser_scan.hpp"
-#include "sensor_msgs/msg/nav_sat_fix.hpp"
-#include "geometry_msgs/msg/pose_stamped.hpp"
-#include "rosbag2_cpp/writer.hpp"
 #include "ws2812b_control.hpp"
 
 
@@ -26,27 +29,63 @@ public:
   {
     auto timestamp_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     timestamp_param_desc.description = "Threshold for timestamp difference in approximate sync (seconds)";
-    this->declare_parameter("timestamp_diff_threshold", 0.025, timestamp_param_desc);
+    this->declare_parameter("timestamp_diff_threshold", 0.15, timestamp_param_desc);
 
+    auto interpolation_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    interpolation_param_desc.description = "Threshold for interpolation timestamp difference (seconds)";
+    this->declare_parameter("interpolation_timestamp_threshold", 0.11, interpolation_param_desc);
+  
     auto enable_bag_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     enable_bag_param_desc.description = "Enable or disable bag saving";
     this->declare_parameter("enable_bag", false, enable_bag_param_desc);
 
-    led_strip_.clear();
-
     enable_bag_ = this->get_parameter("enable_bag").as_bool();
-
-    get_current_timestamp(time_format_);
-
     if (enable_bag_)
     {
+      get_current_timestamp(time_format_);
       bag_name_ = bag_dir_ + "lidar_bag_" + std::string(time_format_);
 
       writer_ = std::make_unique<rosbag2_cpp::Writer>();
       RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name_.c_str());
     }
 
+    double timestamp_diff_threshold = this->get_parameter("timestamp_diff_threshold").as_double();
+    RCLCPP_INFO(this->get_logger(), "Using timestamp difference threshold: %f seconds", timestamp_diff_threshold);
+
+    interpolation_timestamp_threshold_ = this->get_parameter("interpolation_timestamp_threshold").as_double();
+    RCLCPP_INFO(this->get_logger(), "Using interpolation timestamp difference threshold: %f seconds", interpolation_timestamp_threshold_);
+
+    if (interpolation_timestamp_threshold_ >= timestamp_diff_threshold)
+    {
+      RCLCPP_ERROR(this->get_logger(), "timestamp_diff_threshold is smaller than interpolation_timestamp_threshold! Exiting...");
+      return;
+    }
+
+    led_strip_.clear();
+
     auto qos = rclcpp::SensorDataQoS();
+
+    // tf
+    auto timer_interface = std::make_shared<tf2_ros::CreateTimerROS>(
+      this->get_node_base_interface(),
+      this->get_node_timers_interface()
+    );
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    tf_buffer_->setCreateTimerInterface(timer_interface);
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+    tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
+
+    // subscribers
+    mf_scan_sub_.subscribe(this, scan_topic_, qos.get_rmw_qos_profile());
+
+    mf_tf2_ = std::make_shared<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>>(
+      mf_scan_sub_, *tf_buffer_, world_link_, 10,
+      this->get_node_logging_interface(),
+      this->get_node_clock_interface(),
+      tf2::durationFromSec(timestamp_diff_threshold)
+    );
+    mf_tf2_->setTolerance(rclcpp::Duration::from_seconds(interpolation_timestamp_threshold_));
+    mf_tf2_->registerCallback(&LidarMapper::sync_scan_callback, this);
 
     rc_sub_ = this->create_subscription<mavros_msgs::msg::RCIn>(
       rc_topic_,
@@ -78,23 +117,6 @@ public:
       std::bind(&LidarMapper::pose_callback, this, std::placeholders::_1)
     );
 
-    mf_scan_sub_.subscribe(this, scan_topic_, qos.get_rmw_qos_profile());
-    mf_pose_sub_.subscribe(this, pose_topic_, qos.get_rmw_qos_profile());
-
-    sync_ = std::make_shared<message_filters::Synchronizer<ApproximateSyncPolicy>>(
-      ApproximateSyncPolicy(10),
-      mf_scan_sub_,
-      mf_pose_sub_
-    );
-
-    double timestamp_diff_threshold = this->get_parameter("timestamp_diff_threshold").as_double();
-    RCLCPP_INFO(this->get_logger(), "Using timestamp difference threshold: %f seconds", timestamp_diff_threshold);
-
-    sync_->setMaxIntervalDuration(rclcpp::Duration::from_seconds(timestamp_diff_threshold));
-    sync_->registerCallback(std::bind(&LidarMapper::approximate_sync_callback, this,
-                                      std::placeholders::_1,
-                                      std::placeholders::_2));
-
     RCLCPP_INFO(this->get_logger(), "LIDAR mapper node has been started!");
   }
 
@@ -118,11 +140,18 @@ public:
 
 
 private:
-  std::string rc_topic_ = "/mavros/rc/in";
-  std::string scan_topic_ = "/ldlidar_node/scan";
-  std::string orientation_topic_ = "/mavros/imu/data";
-  std::string gps_topic_ = "/mavros/global_position/global";
-  std::string pose_topic_ = "/mavros/local_position/pose";
+  const std::string rc_topic_ = "/mavros/rc/in";
+  const std::string scan_topic_ = "/ldlidar_node/scan";
+  const std::string orientation_topic_ = "/mavros/imu/data";
+  const std::string gps_topic_ = "/mavros/global_position/global";
+  const std::string pose_topic_ = "/mavros/local_position/pose";
+  const std::string sync_point_cloud_topic_ = "/sync_point_cloud";
+
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+  std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+  const std::string world_link_ = "map";
+  const std::string lidar_link_ = "ldlidar_link";
 
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
@@ -130,31 +159,28 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
 
+  message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_scan_sub_;
+  std::shared_ptr<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>> mf_tf2_;
+
+  laser_geometry::LaserProjection laser_projector_;
+
   mavros_msgs::msg::RCIn::SharedPtr last_rc_msg_;
   sensor_msgs::msg::LaserScan::SharedPtr last_scan_msg_;
   sensor_msgs::msg::Imu::SharedPtr last_orientation_msg_;
   sensor_msgs::msg::NavSatFix::SharedPtr last_gps_msg_;
   geometry_msgs::msg::PoseStamped::SharedPtr last_pose_msg_;
 
-  message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_scan_sub_;
-  message_filters::Subscriber<geometry_msgs::msg::PoseStamped> mf_pose_sub_;
-
-  typedef message_filters::sync_policies::ApproximateTime<
-    sensor_msgs::msg::LaserScan,
-    geometry_msgs::msg::PoseStamped> ApproximateSyncPolicy;
-  std::shared_ptr<message_filters::Synchronizer<ApproximateSyncPolicy>> sync_;
-
   bool enable_bag_ = false;
   const char* home = std::getenv("HOME");
-  std::string home_dir_ = home ? std::string(home) : std::string(".");
+  const std::string home_dir_ = home ? std::string(home) : std::string(".");
 
   std::unique_ptr<rosbag2_cpp::Writer> writer_;
   bool writer_opened_ = false;
-  std::string bag_dir_ = home_dir_ + "/ros2_ws/src/lidar_mapper/lidar_bags/";
+  const std::string bag_dir_ = home_dir_ + "/ros2_ws/src/lidar_mapper/lidar_bags/";
   std::string bag_name_;
 
+  double interpolation_timestamp_threshold_ = 0.11;
   char time_format_[20];
-  bool script_started_ = false;
   const long unsigned int script_start_channel_ = 7;
   int script_start_state_ = 0;
 
@@ -169,74 +195,29 @@ private:
   }
 
 
-  void approximate_sync_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr& scan_msg,
-                                 const geometry_msgs::msg::PoseStamped::ConstSharedPtr& pose_msg)
+  void sync_scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr scan_msg)
   {
-    if (last_rc_msg_ && last_rc_msg_->channels.size() > script_start_channel_)
+    rclcpp::Duration scan_duration = rclcpp::Duration::from_seconds(scan_msg->ranges.size() * scan_msg->time_increment);
+    rclcpp::Time end_of_scan = rclcpp::Time(scan_msg->header.stamp) + scan_duration;
+    if (!tf_buffer_->canTransform(world_link_,
+                                  scan_msg->header.frame_id,
+                                  end_of_scan,
+                                  rclcpp::Duration::from_seconds(interpolation_timestamp_threshold_)))
     {
-      if (enable_bag_)
-      {
-        if (script_start_state_ != 2)
-        {
-          return;
-        }
-        else if (script_started_ == false)
-        {
-          script_started_ = true;
-
-          led_strip_.set_pixel(0, 255, 0, 0);
-
-          if (enable_bag_)
-          {
-            get_current_timestamp(time_format_);
-            bag_name_ = bag_dir_ + "lidar_bag_" + std::string(time_format_);
-            RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name_.c_str());
-
-            if (writer_opened_ == false)
-            {
-              writer_->open(bag_name_);
-              writer_opened_ = true;
-            }
-            else
-            {
-              RCLCPP_ERROR(this->get_logger(), "Failed to open bag writer");
-              led_strip_.set_pixel(0, 0, 0, 255);
-            }
-          }
-
-          led_strip_.show();
-        }
-      }
-    }
-    else
-    {
-      RCLCPP_ERROR(this->get_logger(), "RC data corrupted!");
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Waiting for TF data to cover the entire scan duration...");
       return;
     }
 
-    // Process the data
-    if (scan_msg && pose_msg)
-    {
-      if (enable_bag_ && writer_opened_)
-      {
-        auto serialized_scan_msg = std::make_shared<rclcpp::SerializedMessage>();
-        auto serialized_pose_msg = std::make_shared<rclcpp::SerializedMessage>();
+    sensor_msgs::msg::PointCloud2 sync_point_cloud_msg;
+    laser_projector_.transformLaserScanToPointCloud(world_link_, *scan_msg, sync_point_cloud_msg, *tf_buffer_);
 
-        rclcpp::Serialization<sensor_msgs::msg::LaserScan> scan_serialization;
-        scan_serialization.serialize_message(scan_msg.get(), serialized_scan_msg.get());
-        writer_->write(serialized_scan_msg, "/sync_data" + scan_topic_,
-                       "sensor_msgs/msg/LaserScan", scan_msg->header.stamp);
-
-        rclcpp::Serialization<geometry_msgs::msg::PoseStamped> pose_serialization;
-        pose_serialization.serialize_message(pose_msg.get(), serialized_pose_msg.get());
-        writer_->write(serialized_pose_msg, "/sync_data" + pose_topic_,
-                       "geometry_msgs/msg/PoseStamped", pose_msg->header.stamp);
-      }
-    }
-    else
+    if (enable_bag_ && writer_opened_)
     {
-      RCLCPP_ERROR(this->get_logger(), "Data corrupted!");
-      return;
+      auto serialized_point_cloud_msg = std::make_shared<rclcpp::SerializedMessage>();
+      rclcpp::Serialization<sensor_msgs::msg::PointCloud2> point_cloud_serialization;
+      point_cloud_serialization.serialize_message(&sync_point_cloud_msg, serialized_point_cloud_msg.get());
+      writer_->write(serialized_point_cloud_msg, sync_point_cloud_topic_,
+                     "sensor_msgs/msg/PointCloud2", sync_point_cloud_msg.header.stamp);
     }
   }
 
@@ -245,18 +226,9 @@ private:
   {
     last_rc_msg_ = rc_msg;
 
-    if (enable_bag_ && writer_opened_)
-    {
-      auto serialized_rc_msg = std::make_shared<rclcpp::SerializedMessage>();
-
-      rclcpp::Serialization<mavros_msgs::msg::RCIn> rc_serialization;
-      rc_serialization.serialize_message(rc_msg.get(), serialized_rc_msg.get());
-      writer_->write(serialized_rc_msg, rc_topic_,
-                     "mavros_msgs/msg/RCIn", rc_msg->header.stamp);
-    }
-
     if (last_rc_msg_->channels.size() <= script_start_channel_)
     {
+      RCLCPP_ERROR(this->get_logger(), "Not enough channels to process");
       return;
     }
     else
@@ -293,9 +265,9 @@ private:
 
     if (script_start_state_ != 2)
     {
-      if (enable_bag_ && script_started_ && writer_)
+      if (enable_bag_)
       {
-        if (writer_opened_)
+        if (writer_ && writer_opened_)
         {
           writer_->close();
           writer_opened_ = false;
@@ -305,8 +277,6 @@ private:
           RCLCPP_WARN(this->get_logger(), "Bag file not opened");
         }
       }
-
-      script_started_ = false;
 
       led_strip_.set_pixel(0, 255, 255, 255);
       led_strip_.show();
@@ -318,11 +288,40 @@ private:
     }
     else
     {
-      if (script_started_ == false)
+      led_strip_.set_pixel(0, 255, 0, 0);
+
+      if (enable_bag_ && writer_)
       {
-        led_strip_.set_pixel(0, 100, 100, 100);
-        led_strip_.show();
+        if (last_scan_msg_ != nullptr && last_pose_msg_ != nullptr)
+        {
+          get_current_timestamp(time_format_);
+          bag_name_ = bag_dir_ + "lidar_bag_" + std::string(time_format_);
+          RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name_.c_str());
+
+          if (writer_opened_ == false)
+          {
+            writer_->open(bag_name_);
+            writer_opened_ = true;
+          }
+          else
+          {
+            RCLCPP_ERROR(this->get_logger(), "Failed to open bag writer");
+            led_strip_.set_pixel(0, 0, 0, 255);
+          }
+        }
       }
+
+      led_strip_.show();
+    }
+
+    if (enable_bag_ && writer_opened_)
+    {
+      auto serialized_rc_msg = std::make_shared<rclcpp::SerializedMessage>();
+
+      rclcpp::Serialization<mavros_msgs::msg::RCIn> rc_serialization;
+      rc_serialization.serialize_message(rc_msg.get(), serialized_rc_msg.get());
+      writer_->write(serialized_rc_msg, rc_topic_,
+                     "mavros_msgs/msg/RCIn", rc_msg->header.stamp);
     }
   }
 
@@ -378,6 +377,20 @@ private:
   void pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr pose_msg)
   {
     last_pose_msg_ = pose_msg;
+
+    geometry_msgs::msg::TransformStamped world_drone_tf;
+    world_drone_tf.header.stamp = pose_msg->header.stamp;
+    world_drone_tf.header.frame_id = world_link_;
+    world_drone_tf.child_frame_id = lidar_link_;
+    world_drone_tf.transform.translation.x = pose_msg->pose.position.x;
+    world_drone_tf.transform.translation.y = pose_msg->pose.position.y;
+    world_drone_tf.transform.translation.z = pose_msg->pose.position.z;
+    world_drone_tf.transform.rotation.w = pose_msg->pose.orientation.w;
+    world_drone_tf.transform.rotation.x = pose_msg->pose.orientation.x;
+    world_drone_tf.transform.rotation.y = pose_msg->pose.orientation.y;
+    world_drone_tf.transform.rotation.z = pose_msg->pose.orientation.z;
+
+    tf_broadcaster_->sendTransform(world_drone_tf);
 
     if (enable_bag_ && writer_opened_)
     {
