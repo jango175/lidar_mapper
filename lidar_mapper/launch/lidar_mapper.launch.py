@@ -18,7 +18,7 @@ def generate_launch_description():
   mavros_node = Node(
     package = 'mavros',
     executable = 'mavros_node',
-    output = 'screen',
+    output = 'log',
     parameters = [{
       'fcu_url': '/dev/ttyS5:500000',
       'gcs_url': 'udp://@10.201.250.188:14550',
@@ -80,7 +80,8 @@ def generate_launch_description():
     name = 'lidar_mapper_node',
     output = 'screen',
     parameters = [
-      {'timestamp_diff_threshold': 0.025},
+      {'timestamp_diff_threshold': 0.15},
+      {'interpolation_timestamp_threshold': 0.11}, # should be smaller than timestamp_diff_threshold
       {'enable_bag': True},
     ]
   )

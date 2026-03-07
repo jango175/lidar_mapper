@@ -197,6 +197,9 @@ private:
 
   void sync_scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr scan_msg)
   {
+    if (script_start_state_ != 2)
+      return;
+
     rclcpp::Duration scan_duration = rclcpp::Duration::from_seconds(scan_msg->ranges.size() * scan_msg->time_increment);
     rclcpp::Time end_of_scan = rclcpp::Time(scan_msg->header.stamp) + scan_duration;
     if (!tf_buffer_->canTransform(world_link_,
@@ -271,43 +274,42 @@ private:
         {
           writer_->close();
           writer_opened_ = false;
-        }
-        else
-        {
-          RCLCPP_WARN(this->get_logger(), "Bag file not opened");
+
+          last_gps_msg_ = nullptr;
+          last_orientation_msg_ = nullptr;
+          last_pose_msg_ = nullptr;
+          last_rc_msg_ = nullptr;
+          last_scan_msg_ = nullptr;
         }
       }
 
       led_strip_.set_pixel(0, 255, 255, 255);
       led_strip_.show();
 
-      if (enable_bag_)
-      {
-        RCLCPP_WARN(this->get_logger(), "Script not started yet...");
-      }
+      RCLCPP_WARN(this->get_logger(), "Script not started yet...");
     }
     else
     {
       led_strip_.set_pixel(0, 255, 0, 0);
 
-      if (enable_bag_ && writer_)
+      if (enable_bag_)
       {
         if (last_scan_msg_ != nullptr && last_pose_msg_ != nullptr)
         {
-          get_current_timestamp(time_format_);
-          bag_name_ = bag_dir_ + "lidar_bag_" + std::string(time_format_);
-          RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name_.c_str());
-
-          if (writer_opened_ == false)
+          if (writer_ && writer_opened_ == false)
           {
+            get_current_timestamp(time_format_);
+            bag_name_ = bag_dir_ + "lidar_bag_" + std::string(time_format_);
+            RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name_.c_str());
+
             writer_->open(bag_name_);
             writer_opened_ = true;
           }
-          else
-          {
-            RCLCPP_ERROR(this->get_logger(), "Failed to open bag writer");
-            led_strip_.set_pixel(0, 0, 0, 255);
-          }
+        }
+        else
+        {
+          RCLCPP_WARN(this->get_logger(), "Needed data not available yet");
+          led_strip_.set_pixel(0, 100, 100, 100);
         }
       }
 
