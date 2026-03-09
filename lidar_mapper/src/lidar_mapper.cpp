@@ -60,10 +60,10 @@ public:
     double timestamp_diff_threshold = this->get_parameter("timestamp_diff_threshold").as_double();
     RCLCPP_INFO(this->get_logger(), "Using timestamp difference threshold: %f seconds", timestamp_diff_threshold);
 
-    interpolation_timestamp_threshold_ = this->get_parameter("interpolation_timestamp_threshold").as_double();
-    RCLCPP_INFO(this->get_logger(), "Using interpolation timestamp difference threshold: %f seconds", interpolation_timestamp_threshold_);
+    double interpolation_timestamp_threshold = this->get_parameter("interpolation_timestamp_threshold").as_double();
+    RCLCPP_INFO(this->get_logger(), "Using interpolation timestamp difference threshold: %f seconds", interpolation_timestamp_threshold);
 
-    if (interpolation_timestamp_threshold_ >= timestamp_diff_threshold)
+    if (interpolation_timestamp_threshold >= timestamp_diff_threshold)
     {
       RCLCPP_ERROR(this->get_logger(), "timestamp_diff_threshold is smaller than interpolation_timestamp_threshold! Exiting...");
       return;
@@ -77,16 +77,7 @@ public:
     boost::qvm::quat<double> q_x = boost::qvm::rotx_quat(0.0);
     boost::qvm::quat<double> q_y = boost::qvm::roty_quat(lidar_mount_angle_deg * M_PI / 180.0);
     boost::qvm::quat<double> q_z = boost::qvm::rotz_quat(0.0);
-    boost::qvm::quat<double> q = q_z * q_y * q_x;
-    drone_lidar_tf_.header.frame_id = drone_link_;
-    drone_lidar_tf_.child_frame_id = lidar_link_;
-    drone_lidar_tf_.transform.translation.x = 0.088;
-    drone_lidar_tf_.transform.translation.y = 0.0;
-    drone_lidar_tf_.transform.translation.z = 0.0732;
-    drone_lidar_tf_.transform.rotation.w = q.a[0];
-    drone_lidar_tf_.transform.rotation.x = q.a[1];
-    drone_lidar_tf_.transform.rotation.y = q.a[2];
-    drone_lidar_tf_.transform.rotation.z = q.a[3];
+    q_lidar_ = q_z * q_y * q_x;
 
     auto timer_interface = std::make_shared<tf2_ros::CreateTimerROS>(
       this->get_node_base_interface(),
@@ -106,7 +97,7 @@ public:
       this->get_node_clock_interface(),
       tf2::durationFromSec(timestamp_diff_threshold)
     );
-    mf_tf2_->setTolerance(rclcpp::Duration::from_seconds(interpolation_timestamp_threshold_));
+    mf_tf2_->setTolerance(rclcpp::Duration::from_seconds(interpolation_timestamp_threshold));
     mf_tf2_->registerCallback(&LidarMapper::sync_scan_callback, this);
 
     rc_sub_ = this->create_subscription<mavros_msgs::msg::RCIn>(
@@ -173,7 +164,6 @@ private:
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   const std::string world_link_ = "map";
-  const std::string drone_link_ = "drone_base_link";
   const std::string lidar_link_ = "ldlidar_link";
 
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
@@ -182,17 +172,20 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
 
-  geometry_msgs::msg::TransformStamped drone_lidar_tf_;
   message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_scan_sub_;
   std::shared_ptr<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>> mf_tf2_;
-
-  laser_geometry::LaserProjection laser_projector_;
 
   mavros_msgs::msg::RCIn::SharedPtr last_rc_msg_;
   sensor_msgs::msg::LaserScan::SharedPtr last_scan_msg_;
   sensor_msgs::msg::Imu::SharedPtr last_orientation_msg_;
   sensor_msgs::msg::NavSatFix::SharedPtr last_gps_msg_;
   geometry_msgs::msg::PoseStamped::SharedPtr last_pose_msg_;
+
+  laser_geometry::LaserProjection laser_projector_;
+  boost::qvm::quat<double> q_lidar_;
+  const double lidar_offset_x_ = 0.088;
+  const double lidar_offset_y_ = 0.0;
+  const double lidar_offset_z_ = 0.088;
 
   bool enable_bag_ = false;
   const char* home = std::getenv("HOME");
@@ -203,7 +196,6 @@ private:
   const std::string bag_dir_ = home_dir_ + "/ros2_ws/src/lidar_mapper/lidar_bags/";
   std::string bag_name_;
 
-  double interpolation_timestamp_threshold_ = 0.11;
   char time_format_[20];
   const long unsigned int script_start_channel_ = 7;
   int script_start_state_ = 0;
@@ -229,7 +221,7 @@ private:
     if (!tf_buffer_->canTransform(world_link_,
                                   scan_msg->header.frame_id,
                                   end_of_scan,
-                                  rclcpp::Duration::from_seconds(interpolation_timestamp_threshold_)))
+                                  rclcpp::Duration::from_seconds(0.0)))
     {
       RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Waiting for TF data to cover the entire scan duration...");
       return;
@@ -404,23 +396,27 @@ private:
   {
     last_pose_msg_ = pose_msg;
 
-    geometry_msgs::msg::TransformStamped world_drone_tf;
-    world_drone_tf.header.stamp = pose_msg->header.stamp;
-    world_drone_tf.header.frame_id = world_link_;
-    world_drone_tf.child_frame_id = drone_link_;
-    world_drone_tf.transform.translation.x = pose_msg->pose.position.x;
-    world_drone_tf.transform.translation.y = pose_msg->pose.position.y;
-    world_drone_tf.transform.translation.z = pose_msg->pose.position.z;
-    world_drone_tf.transform.rotation.w = pose_msg->pose.orientation.w;
-    world_drone_tf.transform.rotation.x = pose_msg->pose.orientation.x;
-    world_drone_tf.transform.rotation.y = pose_msg->pose.orientation.y;
-    world_drone_tf.transform.rotation.z = pose_msg->pose.orientation.z;
+    boost::qvm::quat<double> q_drone = {
+      pose_msg->pose.orientation.w,
+      pose_msg->pose.orientation.x,
+      pose_msg->pose.orientation.y,
+      pose_msg->pose.orientation.z
+    };
+    boost::qvm::quat<double> q = q_lidar_ * q_drone;
 
-    // update just stamp
-    drone_lidar_tf_.header.stamp = pose_msg->header.stamp;
+    geometry_msgs::msg::TransformStamped world_lidar_tf;
+    world_lidar_tf.header.stamp = pose_msg->header.stamp;
+    world_lidar_tf.header.frame_id = world_link_;
+    world_lidar_tf.child_frame_id = lidar_link_;
+    world_lidar_tf.transform.translation.x = pose_msg->pose.position.x + lidar_offset_x_;
+    world_lidar_tf.transform.translation.y = pose_msg->pose.position.y + lidar_offset_y_;
+    world_lidar_tf.transform.translation.z = pose_msg->pose.position.z + lidar_offset_z_;
+    world_lidar_tf.transform.rotation.w = q.a[0];
+    world_lidar_tf.transform.rotation.x = q.a[1];
+    world_lidar_tf.transform.rotation.y = q.a[2];
+    world_lidar_tf.transform.rotation.z = q.a[3];
 
-    tf_broadcaster_->sendTransform(world_drone_tf);
-    tf_broadcaster_->sendTransform(drone_lidar_tf_);
+    tf_broadcaster_->sendTransform(world_lidar_tf);
 
     if (enable_bag_ && writer_opened_)
     {
