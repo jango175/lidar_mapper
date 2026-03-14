@@ -28,52 +28,6 @@ def generate_launch_description():
     }]
   )
 
-  req_base = ExecuteProcess(
-    cmd = [
-      'ros2', 'service', 'call',
-      '/mavros/set_stream_rate', 'mavros_msgs/srv/StreamRate',
-      '{stream_id: 0, message_rate: 10, on_off: true}'
-    ],
-    output = 'log'
-  )
-
-  req_rc = ExecuteProcess(
-    cmd = [
-      'ros2', 'service', 'call',
-      '/mavros/set_stream_rate', 'mavros_msgs/srv/StreamRate',
-      '{stream_id: 3, message_rate: 20, on_off: true}'
-    ],
-    output = 'log'
-  )
-
-  req_pos_gps = ExecuteProcess(
-    cmd = [
-      'ros2', 'service', 'call',
-      '/mavros/set_stream_rate', 'mavros_msgs/srv/StreamRate',
-      '{stream_id: 6, message_rate: 20, on_off: true}'
-    ],
-    output = 'log'
-  )
-
-  req_imu = ExecuteProcess(
-    cmd = [
-      'ros2', 'service', 'call',
-      '/mavros/set_stream_rate', 'mavros_msgs/srv/StreamRate',
-      '{stream_id: 10, message_rate: 50, on_off: true}'
-    ],
-    output = 'log'
-  )
-
-  delayed_base_request = TimerAction(
-    period = 20.0,
-    actions = [req_base]
-  )
-
-  delayed_sensors_request = TimerAction(
-    period = 25.0,
-    actions = [req_rc, req_pos_gps, req_imu]
-  )
-
   lidar_mapper_node = Node(
     package = 'lidar_mapper',
     executable = 'lidar_mapper',
@@ -90,8 +44,6 @@ def generate_launch_description():
   ld = LaunchDescription()
   ld.add_action(ldlidar_node)
   ld.add_action(mavros_node)
-  ld.add_action(delayed_base_request)
-  ld.add_action(delayed_sensors_request)
   ld.add_action(lidar_mapper_node)
 
   return ld
