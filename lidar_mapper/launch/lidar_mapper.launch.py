@@ -25,7 +25,7 @@ def generate_launch_description():
       'tgt_system': 1,
       'tgt_component': 1,
       'fcu_protocol': 'v2.0',
-      'plugin_denylist': '[odometry]'
+      'plugin_denylist': ['odometry']
     }]
   )
 
@@ -36,7 +36,7 @@ def generate_launch_description():
     output = 'screen',
     parameters = [
       {'lidar_mount_angle_deg': 30.0},
-      {'mf_timeout': 0.5},
+      {'mf_timeout': 0.25},
       {'timestamp_tolerance': 0.11}, # should be smaller than mf_timeout
       {'enable_bag': True}
     ]
