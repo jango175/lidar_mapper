@@ -24,7 +24,8 @@ def generate_launch_description():
       'gcs_url': 'udp://@10.201.250.188:14550',
       'tgt_system': 1,
       'tgt_component': 1,
-      'fcu_protocol': 'v2.0'
+      'fcu_protocol': 'v2.0',
+      'plugin_denylist': '[odometry]'
     }]
   )
 
