@@ -42,9 +42,27 @@ def generate_launch_description():
     ]
   )
 
+  octomap_node = Node(
+    package = 'octomap_server',
+    executable = 'octomap_server_node',
+    name = 'octomap_server',
+    output = 'log',
+    parameters = [
+      {'resolution': 0.15},
+      {'frame_id': 'map'},
+      {'base_frame_id': 'base_link'},
+      {'sensor_model.max_range': 12.0},
+      {'latch': True}
+    ],
+    remappings = [
+      ('cloud_in', '/sync_point_cloud')
+    ]
+  )
+
   ld = LaunchDescription()
   ld.add_action(ldlidar_node)
   ld.add_action(mavros_node)
   ld.add_action(lidar_mapper_node)
+  ld.add_action(octomap_node)
 
   return ld
