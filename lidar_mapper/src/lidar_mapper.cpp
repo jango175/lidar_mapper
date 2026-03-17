@@ -1,5 +1,7 @@
 #include <string>
 #include <ctime>
+#include <boost/qvm/quat.hpp>
+#include <boost/qvm/quat_operations.hpp>
 #include <rclcpp/node.hpp>
 #include <rclcpp/logging.hpp>
 #include <mavros_msgs/msg/rc_in.hpp>
@@ -15,10 +17,9 @@
 #include <tf2_ros/transform_broadcaster.hpp>
 #include <tf2_ros/transform_listener.hpp>
 #include <tf2_ros/buffer.hpp>
+#include <unistd.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
-#include <boost/qvm/quat.hpp>
-#include <boost/qvm/quat_operations.hpp>
 
 #include "ws2812b_control.hpp"
 
@@ -147,12 +148,13 @@ public:
 
   ~LidarMapper()
   {
-    // Close the bag writer if it was opened
+    // close the bag writer if it was opened
     if (enable_bag_ && writer_)
     {
       if (writer_opened_)
       {
         writer_->close();
+        sync();
         writer_opened_ = false;
       }
       else
@@ -301,6 +303,7 @@ private:
         if (writer_ && writer_opened_)
         {
           writer_->close();
+          sync();
           writer_opened_ = false;
 
           last_gps_msg_ = nullptr;
