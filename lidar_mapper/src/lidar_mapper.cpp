@@ -202,8 +202,8 @@ private:
   const double lidar_offset_z_ = 0.088;
 
   bool enable_bag_ = false;
-  const char* home = std::getenv("HOME");
-  const std::string home_dir_ = home ? std::string(home) : std::string(".");
+  const char* home_ = std::getenv("HOME");
+  const std::string home_dir_ = home_ ? std::string(home_) : std::string(".");
 
   std::unique_ptr<rosbag2_cpp::Writer> writer_;
   bool writer_opened_ = false;
