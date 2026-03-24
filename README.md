@@ -8,6 +8,7 @@ sudo apt install setserial
 sudo apt install ros-jazzy-mavros
 wget https://raw.githubusercontent.com/mavlink/mavros/ros2/mavros/scripts/install_geographiclib_datasets.sh
 ./install_geographiclib_datasets.sh
+sudo apt install ros-jazzy-mavros-extras
 sudo apt install ros-jazzy-laser-geometry
 sudo apt install ros-jazzy-vrpn-mocap
 sudo apt install ros-jazzy-octomap-server
