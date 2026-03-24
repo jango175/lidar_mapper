@@ -1,11 +1,11 @@
 import os
 from ament_index_python.packages import get_package_share_directory
-
 from launch import LaunchDescription, LaunchContext
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, ExecuteProcess, TimerAction
 from launch.launch_description_sources import AnyLaunchDescriptionSource, PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
 
 def setup_nodes(context: LaunchContext, *args, **kwargs):
   use_optitrack = LaunchConfiguration('use_optitrack').perform(context).lower() == 'true'
@@ -32,7 +32,27 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
       'tgt_system': 1,
       'tgt_component': 1,
       'fcu_protocol': 'v2.0',
-      'plugin_denylist': ['odometry']
+      'plugin_denylist': ['*'],
+      'plugin_allowlist': [
+        'sys_status',
+        'sys_time',
+        'vision_pose',
+        'vision_speed',
+        'global_position',
+        'local_position',
+        'command',
+        'imu',
+        'rc_io',
+        'mocap_pose_estimate',
+        'optical_flow',
+        'rangefinder',
+        'setpoint_accel',
+        'setpoint_attitude',
+        'setpoint_position',
+        'setpoint_raw',
+        'setpoint_trajectory',
+        'setpoint_velocity'
+      ]
     }]
   )
 
@@ -44,7 +64,7 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
     parameters=[
       {'lidar_mount_angle_deg': 30.0},
       {'mf_timeout': 0.25},
-      {'timestamp_tolerance': 0.11}, 
+      {'timestamp_tolerance': 0.11},
       {'enable_bag': True}
     ]
   )
@@ -62,7 +82,7 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
       {'latch': True}
     ],
     remappings=[
-      ('cloud_in', '/sync_point_cloud')
+      ('cloud_in', '/sync_slice_point_cloud')
     ]
   )
 
@@ -86,25 +106,44 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
       name='mocap_relay_node',
       output='screen',
       arguments=[
-        f'/vrpn_mocap/{rigid_body_name}/pose', 
+        f'/vrpn_mocap/{rigid_body_name}/pose',
         '/mavros/vision_pose/pose'
+      ]
+    )
+
+    set_origin_cmd = TimerAction(
+      period=8.0,
+      actions=[
+        ExecuteProcess(
+          cmd=[
+            'ros2', 'topic', 'pub', '--once',
+            '/mavros/global_position/set_gp_origin',
+            'geographic_msgs/msg/GeoPointStamped',
+            '"{header: {frame_id: \'map\'}, position: {latitude: 55.470368, longitude: 10.329439, altitude: 15.0}}"'
+          ],
+          shell=True,
+          output='screen'
+        )
       ]
     )
 
     nodes_to_launch.append(vrpn_node)
     nodes_to_launch.append(relay_node)
+    nodes_to_launch.append(set_origin_cmd)
 
   return nodes_to_launch
 
 
 def generate_launch_description():
   use_optitrack_arg = DeclareLaunchArgument(
-    'use_optitrack', default_value='false',
+    'use_optitrack',
+    default_value='false',
     description='Set true when using OptiTrack system'
   )
 
   rigid_body_arg = DeclareLaunchArgument(
-    'rigid_body_name', default_value='lidar_drone',
+    'rigid_body_name',
+    default_value='lidar_drone',
     description='Name of the VRPN rigid body'
   )
 

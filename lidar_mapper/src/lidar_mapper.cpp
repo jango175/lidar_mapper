@@ -171,7 +171,7 @@ private:
   const std::string orientation_topic_ = "/mavros/imu/data";
   const std::string gps_topic_ = "/mavros/global_position/global";
   const std::string pose_topic_ = "/mavros/local_position/pose";
-  const std::string sync_point_cloud_topic_ = "/sync_point_cloud";
+  const std::string sync_slice_point_cloud_topic_ = "/sync_slice_point_cloud";
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -241,16 +241,16 @@ private:
       return;
     }
 
-    sensor_msgs::msg::PointCloud2 sync_point_cloud_msg;
-    laser_projector_.transformLaserScanToPointCloud(drone_link_, *scan_msg, sync_point_cloud_msg, *tf_buffer_);
+    sensor_msgs::msg::PointCloud2 sync_slice_point_cloud_msg;
+    laser_projector_.transformLaserScanToPointCloud(drone_link_, *scan_msg, sync_slice_point_cloud_msg, *tf_buffer_);
 
     if (enable_bag_ && writer_opened_)
     {
       auto serialized_point_cloud_msg = std::make_shared<rclcpp::SerializedMessage>();
       rclcpp::Serialization<sensor_msgs::msg::PointCloud2> point_cloud_serialization;
-      point_cloud_serialization.serialize_message(&sync_point_cloud_msg, serialized_point_cloud_msg.get());
-      writer_->write(serialized_point_cloud_msg, sync_point_cloud_topic_,
-                     "sensor_msgs/msg/PointCloud2", sync_point_cloud_msg.header.stamp);
+      point_cloud_serialization.serialize_message(&sync_slice_point_cloud_msg, serialized_point_cloud_msg.get());
+      writer_->write(serialized_point_cloud_msg, sync_slice_point_cloud_topic_,
+                     "sensor_msgs/msg/PointCloud2", sync_slice_point_cloud_msg.header.stamp);
     }
   }
 
