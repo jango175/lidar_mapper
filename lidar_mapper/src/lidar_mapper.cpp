@@ -1,3 +1,12 @@
+/**
+ * @file lidar_mapper.cpp
+ * @author jango175
+ * @brief LIDAR mapper ROS2 node
+ * 
+ * @copyright Copyright (c) 2026
+ * 
+ */
+
 #include <string>
 #include <ctime>
 #include <boost/qvm/quat.hpp>
@@ -24,19 +33,24 @@
 #include "ws2812b_control.hpp"
 
 
+// LidarMapper node class
 class LidarMapper : public rclcpp::Node
 {
 public:
-  LidarMapper() : Node("lidar_mapper"),
-                  led_strip_("/dev/spidev1.0", 1)
+  /**
+   * @brief Construct a new Lidar Mapper object
+   * 
+   */
+  LidarMapper() : Node("lidar_mapper")
   {
+    // parameters
     auto lidar_mount_angle_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     lidar_mount_angle_param_desc.description = "LIDAR mount angle in degrees";
     this->declare_parameter("lidar_mount_angle_deg", 30.0, lidar_mount_angle_param_desc);
 
     auto mf_timeout_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     mf_timeout_param_desc.description = "Timeout for message filter tf buffer (seconds)";
-    this->declare_parameter("mf_timeout", 0.5, mf_timeout_param_desc);
+    this->declare_parameter("mf_timeout", 0.25, mf_timeout_param_desc);
 
     auto timestamp_tolerance_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     timestamp_tolerance_param_desc.description = "Timestamp tolerance for laser interpolation (seconds)";
@@ -146,6 +160,10 @@ public:
   }
 
 
+  /**
+   * @brief Destroy the Lidar Mapper object
+   * 
+   */
   ~LidarMapper()
   {
     // close the bag writer if it was opened
@@ -214,9 +232,14 @@ private:
   const long unsigned int script_start_channel_ = 7;
   int script_start_state_ = 0;
 
-  WS2812B led_strip_;
+  WS2812B led_strip_{"/dev/spidev1.0", 1};
 
 
+  /**
+   * @brief Get current timestamp (%y-%m-%d_%H:%M:%S format)
+   * 
+   * @param time_format Pointer to the timestamp string
+   */
   void get_current_timestamp(char* time_format)
   {
     time_t timestamp = time(NULL);
@@ -225,6 +248,11 @@ private:
   }
 
 
+  /**
+   * @brief Callback for deskewed scan data
+   * 
+   * @param scan_msg Laser scan message pointer
+   */
   void sync_scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr scan_msg)
   {
     if (script_start_state_ != 2)
@@ -255,6 +283,11 @@ private:
   }
 
 
+  /**
+   * @brief Callback for RC channels data
+   * 
+   * @param rc_msg RC channels message pointer
+   */
   void rc_callback(const mavros_msgs::msg::RCIn::SharedPtr rc_msg)
   {
     last_rc_msg_ = rc_msg;
@@ -359,6 +392,11 @@ private:
   }
 
 
+  /**
+   * @brief Callback for raw scan data
+   * 
+   * @param scan_msg Laser scan message pointer
+   */
   void scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr scan_msg)
   {
     last_scan_msg_ = scan_msg;
@@ -375,6 +413,11 @@ private:
   }
 
 
+  /**
+   * @brief Callback for orientation data
+   * 
+   * @param orientation_msg Orientation message pointer
+   */
   void orientation_callback(const sensor_msgs::msg::Imu::SharedPtr orientation_msg)
   {
     last_orientation_msg_ = orientation_msg;
@@ -391,6 +434,11 @@ private:
   }
 
 
+  /**
+   * @brief Callback for GPS data
+   * 
+   * @param gps_msg GPS message pointer
+   */
   void gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr gps_msg)
   {
     last_gps_msg_ = gps_msg;
@@ -407,6 +455,11 @@ private:
   }
 
 
+  /**
+   * @brief Callback for local position data
+   * 
+   * @param pose_msg Local position message pointer
+   */
   void pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr pose_msg)
   {
     last_pose_msg_ = pose_msg;
@@ -442,6 +495,14 @@ private:
 };
 
 
+/**
+ * @brief Main function
+ * 
+ * @param argc Argument count
+ * @param argv Argument vector
+ * 
+ * @return Exit status
+ */
 int main(int argc, char* argv[])
 {
   rclcpp::init(argc, argv);

@@ -23,10 +23,10 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
   )
 
   mavros_node = Node(
-    package='mavros',
-    executable='mavros_node',
-    output='log',
-    parameters=[{
+    package = 'mavros',
+    executable = 'mavros_node',
+    output = 'log',
+    parameters = [{
       'fcu_url': '/dev/ttyS5:500000',
       'gcs_url': ip_address,
       'tgt_system': 1,
@@ -57,31 +57,31 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
   )
 
   lidar_mapper_node = Node(
-    package='lidar_mapper',
-    executable='lidar_mapper',
-    name='lidar_mapper_node',
-    output='screen',
-    parameters=[
+    package = 'lidar_mapper',
+    executable = 'lidar_mapper',
+    name = 'lidar_mapper_node',
+    output = 'screen',
+    parameters = [
       {'lidar_mount_angle_deg': 30.0},
       {'mf_timeout': 0.25},
-      {'timestamp_tolerance': 0.11},
+      {'timestamp_tolerance': 0.11}, # should be smaller than mf_timeout
       {'enable_bag': True}
     ]
   )
 
   octomap_node = Node(
-    package='octomap_server',
-    executable='octomap_server_node',
-    name='octomap_server',
-    output='log',
-    parameters=[
+    package = 'octomap_server',
+    executable = 'octomap_server_node',
+    name = 'octomap_server',
+    output = 'log',
+    parameters = [
       {'resolution': 0.15},
       {'frame_id': 'map'},
       {'base_frame_id': 'base_link'},
       {'sensor_model.max_range': 12.0},
       {'latch': True}
     ],
-    remappings=[
+    remappings = [
       ('cloud_in', '/sync_slice_point_cloud')
     ]
   )
@@ -94,35 +94,35 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
       AnyLaunchDescriptionSource(
         os.path.join(vrpn_mocap_pkg, 'launch', 'client.launch.yaml')
       ),
-      launch_arguments={
+      launch_arguments = {
         'server': '192.168.16.50',
         'port': '3883',
       }.items()
     )
 
     relay_node = Node(
-      package='topic_tools',
-      executable='relay',
-      name='mocap_relay_node',
-      output='screen',
-      arguments=[
+      package = 'topic_tools',
+      executable = 'relay',
+      name = 'mocap_relay_node',
+      output = 'screen',
+      arguments = [
         f'/vrpn_mocap/{rigid_body_name}/pose',
         '/mavros/vision_pose/pose'
       ]
     )
 
     set_origin_cmd = TimerAction(
-      period=8.0,
-      actions=[
+      period = 10.0,
+      actions = [
         ExecuteProcess(
-          cmd=[
+          cmd = [
             'ros2', 'topic', 'pub', '--once',
             '/mavros/global_position/set_gp_origin',
             'geographic_msgs/msg/GeoPointStamped',
             '"{header: {frame_id: \'map\'}, position: {latitude: 55.470368, longitude: 10.329439, altitude: 15.0}}"'
           ],
-          shell=True,
-          output='screen'
+          shell = True,
+          output = 'screen'
         )
       ]
     )
@@ -137,18 +137,18 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
 def generate_launch_description():
   use_optitrack_arg = DeclareLaunchArgument(
     'use_optitrack',
-    default_value='false',
-    description='Set true when using OptiTrack system'
+    default_value = 'false',
+    description = 'Set true when using OptiTrack system'
   )
 
   rigid_body_arg = DeclareLaunchArgument(
     'rigid_body_name',
-    default_value='lidar_drone',
-    description='Name of the VRPN rigid body'
+    default_value = 'lidar_drone',
+    description = 'Name of the VRPN rigid body'
   )
 
   return LaunchDescription([
     use_optitrack_arg,
     rigid_body_arg,
-    OpaqueFunction(function=setup_nodes)
+    OpaqueFunction(function = setup_nodes)
   ])
