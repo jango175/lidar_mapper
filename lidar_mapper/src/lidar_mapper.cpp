@@ -12,6 +12,7 @@
 #include <boost/qvm/quat.hpp>
 #include <boost/qvm/quat_operations.hpp>
 #include <rclcpp/node.hpp>
+#include <rclcpp/executors.hpp>
 #include <rclcpp/logging.hpp>
 #include <mavros_msgs/msg/rc_in.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -229,7 +230,7 @@ private:
   std::string bag_name_;
 
   char time_format_[20];
-  const long unsigned int script_start_channel_ = 7;
+  const size_t script_start_channel_ = 7;
   int script_start_state_ = 0;
 
   WS2812B led_strip_{"/dev/spidev1.0", 1};
