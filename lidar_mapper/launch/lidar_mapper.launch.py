@@ -1,13 +1,13 @@
 import os
 from ament_index_python.packages import get_package_share_directory
-from launch import LaunchDescription, LaunchContext
+from launch import LaunchDescription, LaunchContext, Action
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, ExecuteProcess, TimerAction
 from launch.launch_description_sources import AnyLaunchDescriptionSource, PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
-def setup_nodes(context: LaunchContext, *args, **kwargs):
+def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
   use_optitrack = LaunchConfiguration('use_optitrack').perform(context).lower() == 'true'
   rigid_body_name = LaunchConfiguration('rigid_body_name').perform(context)
 
@@ -61,14 +61,14 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
     executable = 'lidar_mapper',
     name = 'lidar_mapper_node',
     output = 'screen',
-    parameters = [
-      {'lidar_mount_angle_deg': 30.0},
-      {'mf_timeout': 0.25},
-      {'timestamp_tolerance': 0.11}, # should be smaller than mf_timeout
-      {'sor_mean_k': 50},
-      {'sor_std_dev_mult': 1.0},
-      {'enable_bag': True}
-    ]
+    parameters = [{
+      'lidar_mount_angle_deg': 30.0,
+      'mf_timeout': 0.25,
+      'timestamp_tolerance': 0.11, # should be smaller than mf_timeout
+      'sor_mean_k': 50,
+      'sor_std_dev_mult': 1.0,
+      'enable_bag': True
+    }]
   )
 
   octomap_node = Node(
@@ -76,19 +76,19 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
     executable = 'octomap_server_node',
     name = 'octomap_server',
     output = 'log',
-    parameters = [
-      {'resolution': 0.15},
-      {'frame_id': 'map'},
-      {'base_frame_id': 'base_link'},
-      {'sensor_model.max_range': 12.0},
-      {'latch': True}
-    ],
+    parameters = [{
+      'resolution': 0.15,
+      'frame_id': 'map',
+      'base_frame_id': 'base_link',
+      'sensor_model.max_range': 12.0,
+      'latch': True
+    }],
     remappings = [
       ('cloud_in', '/sync_slice_point_cloud')
     ]
   )
 
-  nodes_to_launch = [ldlidar_node, mavros_node, lidar_mapper_node, octomap_node]
+  nodes_to_launch: list[Action] = [ldlidar_node, mavros_node, lidar_mapper_node, octomap_node]
 
   if use_optitrack:
     vrpn_mocap_pkg = get_package_share_directory('vrpn_mocap')
@@ -96,20 +96,20 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
       AnyLaunchDescriptionSource(
         os.path.join(vrpn_mocap_pkg, 'launch', 'client.launch.yaml')
       ),
-      launch_arguments = {
-        'server': '192.168.16.50',
-        'port': '3883',
-      }.items()
+      launch_arguments = [
+        ('server', '192.168.16.50'),
+        ('port', '3883'),
+      ]
     )
 
     relay_node = Node(
       package = 'topic_tools',
       executable = 'relay',
       name = 'mocap_relay_node',
-      output = 'screen',
-      arguments = [
-        f'/vrpn_mocap/{rigid_body_name}/pose',
-        '/mavros/vision_pose/pose'
+      output = 'log',
+      remappings = [
+        ('input', f'/vrpn_mocap/{rigid_body_name}/pose'),
+        ('output', '/mavros/vision_pose/pose')
       ]
     )
 
@@ -123,8 +123,7 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
             'geographic_msgs/msg/GeoPointStamped',
             '"{header: {frame_id: \'map\'}, position: {latitude: 55.470368, longitude: 10.329439, altitude: 15.0}}"'
           ],
-          shell = True,
-          output = 'screen'
+          output = 'log'
         )
       ]
     )
