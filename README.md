@@ -14,6 +14,7 @@ sudo apt install ros-jazzy-vrpn-mocap
 sudo apt install ros-jazzy-octomap-server
 sudo apt install ros-jazzy-octomap-rviz-plugins
 sudo apt install ros-jazzy-topic-tools
+sudo apt install libomp-dev
 
 cd services/
 sudo cp lidar_mapper.service /etc/systemd/system/

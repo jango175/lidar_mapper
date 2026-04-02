@@ -30,6 +30,9 @@
 #include <unistd.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
+#include <pcl/point_cloud.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/filters/statistical_outlier_removal.h>
 
 #include "ws2812b_control.hpp"
 
@@ -57,11 +60,41 @@ public:
     timestamp_tolerance_param_desc.description = "Timestamp tolerance for laser interpolation (seconds)";
     this->declare_parameter("timestamp_tolerance", 0.11, timestamp_tolerance_param_desc);
 
+    auto sor_mean_k_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    sor_mean_k_param_desc.description = "Number of neighbors to analyze for SOR filter";
+    this->declare_parameter("sor_mean_k", 50, sor_mean_k_param_desc);
+
+    auto sor_std_dev_mult_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    sor_std_dev_mult_param_desc.description = "standard deviation multiplier for SOR filter";
+    this->declare_parameter("sor_std_dev_mult", 1.0, sor_std_dev_mult_param_desc);
+
     auto enable_bag_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     enable_bag_param_desc.description = "Enable or disable bag saving";
     this->declare_parameter("enable_bag", false, enable_bag_param_desc);
 
     double lidar_mount_angle_deg = this->get_parameter("lidar_mount_angle_deg").as_double();
+
+    double mf_timeout = this->get_parameter("mf_timeout").as_double();
+    double timestamp_tolerance = this->get_parameter("timestamp_tolerance").as_double();
+    RCLCPP_INFO(this->get_logger(), "Using timestamp tolerance: %f seconds", timestamp_tolerance);
+    RCLCPP_INFO(this->get_logger(), "Using message filter timeout: %f seconds", mf_timeout);
+
+    if (timestamp_tolerance >= mf_timeout)
+    {
+      RCLCPP_ERROR(this->get_logger(), "mf_timeout is smaller than timestamp_tolerance! Exiting...");
+      return;
+    }
+
+    sor_mean_k_ = this->get_parameter("sor_mean_k").as_int();
+    sor_std_dev_mult_ = this->get_parameter("sor_std_dev_mult").as_double();
+    RCLCPP_INFO(this->get_logger(), "Using SOR filter mean k parameter: %d", sor_mean_k_);
+    RCLCPP_INFO(this->get_logger(), "Using SOR filter std dev mult parameter: %f", sor_std_dev_mult_);
+
+    if (sor_mean_k_ < 0 || sor_std_dev_mult_ < 0.0)
+    {
+      RCLCPP_ERROR(this->get_logger(), "Invalid SOR filter parameters! Exiting...");
+      return;
+    }
 
     enable_bag_ = this->get_parameter("enable_bag").as_bool();
     if (enable_bag_)
@@ -73,21 +106,13 @@ public:
       RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name_.c_str());
     }
 
-    double mf_timeout = this->get_parameter("mf_timeout").as_double();
-    RCLCPP_INFO(this->get_logger(), "Using message filter timeout: %f seconds", mf_timeout);
-
-    double timestamp_tolerance = this->get_parameter("timestamp_tolerance").as_double();
-    RCLCPP_INFO(this->get_logger(), "Using timestamp tolerance: %f seconds", timestamp_tolerance);
-
-    if (timestamp_tolerance >= mf_timeout)
-    {
-      RCLCPP_ERROR(this->get_logger(), "mf_timeout is smaller than timestamp_tolerance! Exiting...");
-      return;
-    }
-
     led_strip_.clear();
 
     auto qos = rclcpp::SensorDataQoS();
+
+
+    // publishers
+    sync_slice_point_cloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(sync_slice_point_cloud_topic_, qos);
 
     // tf
     boost::qvm::quat<double> q_x = boost::qvm::rotx_quat(0.0);
@@ -116,16 +141,16 @@ public:
     tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
 
     // subscribers
-    mf_scan_sub_.subscribe(this, scan_topic_, qos.get_rmw_qos_profile());
+    mf_slice_scan_sub_.subscribe(this, scan_topic_, qos.get_rmw_qos_profile());
 
-    mf_tf2_ = std::make_shared<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>>(
-      mf_scan_sub_, *tf_buffer_, drone_link_, 10,
+    mf_slice_scan_tf2_ = std::make_shared<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>>(
+      mf_slice_scan_sub_, *tf_buffer_, drone_link_, 10,
       this->get_node_logging_interface(),
       this->get_node_clock_interface(),
       tf2::durationFromSec(mf_timeout)
     );
-    mf_tf2_->setTolerance(rclcpp::Duration::from_seconds(timestamp_tolerance));
-    mf_tf2_->registerCallback(&LidarMapper::sync_scan_callback, this);
+    mf_slice_scan_tf2_->setTolerance(rclcpp::Duration::from_seconds(timestamp_tolerance));
+    mf_slice_scan_tf2_->registerCallback(&LidarMapper::sync_slice_scan_callback, this);
 
     rc_sub_ = this->create_subscription<mavros_msgs::msg::RCIn>(
       rc_topic_,
@@ -199,14 +224,16 @@ private:
   const std::string drone_link_ = "base_link";
   const std::string lidar_link_ = "ldlidar_link";
 
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr sync_slice_point_cloud_pub_;
+
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr orientation_sub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
 
-  message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_scan_sub_;
-  std::shared_ptr<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>> mf_tf2_;
+  message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_slice_scan_sub_;
+  std::shared_ptr<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>> mf_slice_scan_tf2_;
 
   mavros_msgs::msg::RCIn::SharedPtr last_rc_msg_;
   sensor_msgs::msg::LaserScan::SharedPtr last_scan_msg_;
@@ -219,6 +246,9 @@ private:
   const double lidar_offset_x_ = 0.088;
   const double lidar_offset_y_ = 0.0;
   const double lidar_offset_z_ = 0.088;
+
+  int sor_mean_k_ = 50;
+  double sor_std_dev_mult_ = 1.0;
 
   bool enable_bag_ = false;
   const char* home_ = std::getenv("HOME");
@@ -252,17 +282,17 @@ private:
   /**
    * @brief Callback for deskewed scan data
    * 
-   * @param scan_msg Laser scan message pointer
+   * @param slice_scan_msg Laser slice scan message pointer
    */
-  void sync_scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr scan_msg)
+  void sync_slice_scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr slice_scan_msg)
   {
     if (script_start_state_ != 2)
       return;
 
-    rclcpp::Duration scan_duration = rclcpp::Duration::from_seconds(scan_msg->ranges.size() * scan_msg->time_increment);
-    rclcpp::Time end_of_scan = rclcpp::Time(scan_msg->header.stamp) + scan_duration;
+    rclcpp::Duration scan_duration = rclcpp::Duration::from_seconds(slice_scan_msg->ranges.size() * slice_scan_msg->time_increment);
+    rclcpp::Time end_of_scan = rclcpp::Time(slice_scan_msg->header.stamp) + scan_duration;
     if (!tf_buffer_->canTransform(drone_link_,
-                                  scan_msg->header.frame_id,
+                                  slice_scan_msg->header.frame_id,
                                   end_of_scan,
                                   rclcpp::Duration::from_seconds(0.0)))
     {
@@ -271,13 +301,30 @@ private:
     }
 
     sensor_msgs::msg::PointCloud2 sync_slice_point_cloud_msg;
-    laser_projector_.transformLaserScanToPointCloud(drone_link_, *scan_msg, sync_slice_point_cloud_msg, *tf_buffer_);
+    laser_projector_.transformLaserScanToPointCloud(drone_link_, *slice_scan_msg, sync_slice_point_cloud_msg, *tf_buffer_);
+
+    // point cloud filtering
+    pcl::PointCloud<pcl::PointXYZI>::Ptr sync_pcl_slice(new pcl::PointCloud<pcl::PointXYZI>());
+    pcl::fromROSMsg(sync_slice_point_cloud_msg, *sync_pcl_slice);
+
+    pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_sync_pcl_slice(new pcl::PointCloud<pcl::PointXYZI>());
+    pcl::StatisticalOutlierRemoval<pcl::PointXYZI> sor;
+    sor.setInputCloud(sync_pcl_slice);
+    sor.setMeanK(sor_mean_k_);
+    sor.setStddevMulThresh(sor_std_dev_mult_);
+    sor.filter(*filtered_sync_pcl_slice);
+
+    sensor_msgs::msg::PointCloud2 filtered_sync_slice_point_cloud_msg;
+    pcl::toROSMsg(*filtered_sync_pcl_slice, filtered_sync_slice_point_cloud_msg);
+    filtered_sync_slice_point_cloud_msg.header = sync_slice_point_cloud_msg.header;
+
+    sync_slice_point_cloud_pub_->publish(filtered_sync_slice_point_cloud_msg);
 
     if (enable_bag_ && writer_opened_)
     {
       auto serialized_point_cloud_msg = std::make_shared<rclcpp::SerializedMessage>();
       rclcpp::Serialization<sensor_msgs::msg::PointCloud2> point_cloud_serialization;
-      point_cloud_serialization.serialize_message(&sync_slice_point_cloud_msg, serialized_point_cloud_msg.get());
+      point_cloud_serialization.serialize_message(&filtered_sync_slice_point_cloud_msg, serialized_point_cloud_msg.get());
       writer_->write(serialized_point_cloud_msg, sync_slice_point_cloud_topic_,
                      "sensor_msgs/msg/PointCloud2", sync_slice_point_cloud_msg.header.stamp);
     }
