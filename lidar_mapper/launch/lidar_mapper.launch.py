@@ -65,6 +65,8 @@ def setup_nodes(context: LaunchContext, *args, **kwargs):
       {'lidar_mount_angle_deg': 30.0},
       {'mf_timeout': 0.25},
       {'timestamp_tolerance': 0.11}, # should be smaller than mf_timeout
+      {'sor_mean_k': 50},
+      {'sor_std_dev_mult': 1.0},
       {'enable_bag': True}
     ]
   )

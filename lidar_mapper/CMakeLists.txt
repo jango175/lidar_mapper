@@ -20,6 +20,9 @@ find_package(geometry_msgs REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
 find_package(laser_geometry REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(pcl_conversions REQUIRED)
+find_package(pcl_ros REQUIRED)
+find_package(PCL REQUIRED)
 
 add_executable(${NODE_NAME} src/lidar_mapper.cpp) 
 ament_target_dependencies(${NODE_NAME}
@@ -31,8 +34,17 @@ ament_target_dependencies(${NODE_NAME}
   rosbag2_cpp
   laser_geometry
   tf2_ros
+  pcl_conversions
+  pcl_ros
 )
 
+target_include_directories(${NODE_NAME} PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include/${PROJECT_NAME}>
+  ${PCL_INCLUDE_DIRS}
+)
+
+target_link_libraries(${NODE_NAME} ${PCL_LIBRARIES})
 target_link_libraries(${NODE_NAME} ws2812b_control)
 
 install(TARGETS
