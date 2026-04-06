@@ -16,6 +16,7 @@ find_package(rclcpp REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(mavros_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
 find_package(laser_geometry REQUIRED)
@@ -30,6 +31,7 @@ ament_target_dependencies(${NODE_NAME}
   message_filters
   mavros_msgs
   sensor_msgs
+  nav_msgs
   geometry_msgs
   rosbag2_cpp
   laser_geometry

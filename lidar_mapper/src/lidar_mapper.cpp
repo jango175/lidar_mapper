@@ -14,12 +14,12 @@
 #include <rclcpp/node.hpp>
 #include <rclcpp/executors.hpp>
 #include <rclcpp/logging.hpp>
-#include <mavros_msgs/msg/rc_in.hpp>
-#include <sensor_msgs/msg/imu.hpp>
 #include <laser_geometry/laser_geometry.hpp>
+#include <mavros_msgs/msg/rc_in.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
-#include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <rosbag2_cpp/writer.hpp>
 #include <tf2_ros/message_filter.hpp>
@@ -48,16 +48,36 @@ public:
   LidarMapper() : Node("lidar_mapper")
   {
     // parameters
-    auto lidar_mount_angle_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    lidar_mount_angle_param_desc.description = "LIDAR mount angle in degrees";
-    this->declare_parameter("lidar_mount_angle_deg", 30.0, lidar_mount_angle_param_desc);
+    auto lidar_mount_roll_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    lidar_mount_roll_param_desc.description = "LIDAR mount roll angle in degrees";
+    this->declare_parameter("lidar_mount_roll_deg", 0.0, lidar_mount_roll_param_desc);
+
+    auto lidar_mount_pitch_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    lidar_mount_pitch_param_desc.description = "LIDAR mount pitch angle in degrees";
+    this->declare_parameter("lidar_mount_pitch_deg", 30.0, lidar_mount_pitch_param_desc);
+
+    auto lidar_mount_yaw_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    lidar_mount_yaw_param_desc.description = "LIDAR mount yaw angle in degrees";
+    this->declare_parameter("lidar_mount_yaw_deg", 0.0, lidar_mount_yaw_param_desc);
+
+    auto lidar_mount_offset_x_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    lidar_mount_offset_x_param_desc.description = "LIDAR mount offset in X axis in meters";
+    this->declare_parameter("lidar_mount_offset_x", 0.088, lidar_mount_offset_x_param_desc);
+
+    auto lidar_mount_offset_y_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    lidar_mount_offset_y_param_desc.description = "LIDAR mount offset in Y axis in meters";
+    this->declare_parameter("lidar_mount_offset_y", 0.0, lidar_mount_offset_y_param_desc);
+
+    auto lidar_mount_offset_z_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    lidar_mount_offset_z_param_desc.description = "LIDAR mount offset in Z axis in meters";
+    this->declare_parameter("lidar_mount_offset_z", 0.088, lidar_mount_offset_z_param_desc);
 
     auto mf_timeout_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    mf_timeout_param_desc.description = "Timeout for message filter tf buffer (seconds)";
+    mf_timeout_param_desc.description = "Timeout for message filter tf buffer in seconds";
     this->declare_parameter("mf_timeout", 0.25, mf_timeout_param_desc);
 
     auto timestamp_tolerance_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    timestamp_tolerance_param_desc.description = "Timestamp tolerance for laser interpolation (seconds)";
+    timestamp_tolerance_param_desc.description = "Timestamp tolerance for laser interpolation in seconds";
     this->declare_parameter("timestamp_tolerance", 0.11, timestamp_tolerance_param_desc);
 
     auto sor_mean_k_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
@@ -65,17 +85,28 @@ public:
     this->declare_parameter("sor_mean_k", 50, sor_mean_k_param_desc);
 
     auto sor_std_dev_mult_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    sor_std_dev_mult_param_desc.description = "standard deviation multiplier for SOR filter";
+    sor_std_dev_mult_param_desc.description = "Standard deviation multiplier for SOR filter";
     this->declare_parameter("sor_std_dev_mult", 1.0, sor_std_dev_mult_param_desc);
 
     auto enable_bag_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     enable_bag_param_desc.description = "Enable or disable bag saving";
     this->declare_parameter("enable_bag", false, enable_bag_param_desc);
 
-    double lidar_mount_angle_deg = this->get_parameter("lidar_mount_angle_deg").as_double();
+    const double lidar_mount_roll_deg = this->get_parameter("lidar_mount_roll_deg").as_double();
+    const double lidar_mount_pitch_deg = this->get_parameter("lidar_mount_pitch_deg").as_double();
+    const double lidar_mount_yaw_deg = this->get_parameter("lidar_mount_yaw_deg").as_double();
+    const double lidar_mount_offset_x = this->get_parameter("lidar_mount_offset_x").as_double();
+    const double lidar_mount_offset_y = this->get_parameter("lidar_mount_offset_y").as_double();
+    const double lidar_mount_offset_z = this->get_parameter("lidar_mount_offset_z").as_double();
+    RCLCPP_INFO(this->get_logger(), "LIDAR mounting roll: %f degrees", lidar_mount_roll_deg);
+    RCLCPP_INFO(this->get_logger(), "LIDAR mounting pitch: %f degrees", lidar_mount_pitch_deg);
+    RCLCPP_INFO(this->get_logger(), "LIDAR mounting yaw: %f degrees", lidar_mount_yaw_deg);
+    RCLCPP_INFO(this->get_logger(), "LIDAR mounting offset X: %f meters", lidar_mount_offset_x);
+    RCLCPP_INFO(this->get_logger(), "LIDAR mounting offset Y: %f meters", lidar_mount_offset_y);
+    RCLCPP_INFO(this->get_logger(), "LIDAR mounting offset Z: %f meters", lidar_mount_offset_z);
 
-    double mf_timeout = this->get_parameter("mf_timeout").as_double();
-    double timestamp_tolerance = this->get_parameter("timestamp_tolerance").as_double();
+    const double mf_timeout = this->get_parameter("mf_timeout").as_double();
+    const double timestamp_tolerance = this->get_parameter("timestamp_tolerance").as_double();
     RCLCPP_INFO(this->get_logger(), "Using timestamp tolerance: %f seconds", timestamp_tolerance);
     RCLCPP_INFO(this->get_logger(), "Using message filter timeout: %f seconds", mf_timeout);
 
@@ -115,17 +146,17 @@ public:
     sync_slice_point_cloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(sync_slice_point_cloud_topic_, qos);
 
     // tf
-    boost::qvm::quat<double> q_x = boost::qvm::rotx_quat(0.0);
-    boost::qvm::quat<double> q_y = boost::qvm::roty_quat(lidar_mount_angle_deg * M_PI / 180.0);
-    boost::qvm::quat<double> q_z = boost::qvm::rotz_quat(0.0);
+    boost::qvm::quat<double> q_x = boost::qvm::rotx_quat(lidar_mount_roll_deg * M_PI / 180.0);
+    boost::qvm::quat<double> q_y = boost::qvm::roty_quat(lidar_mount_pitch_deg * M_PI / 180.0);
+    boost::qvm::quat<double> q_z = boost::qvm::rotz_quat(lidar_mount_yaw_deg * M_PI / 180.0);
     boost::qvm::quat<double> q_lidar = q_z * q_y * q_x;
     boost::qvm::normalize(q_lidar);
 
     drone_lidar_tf_.header.frame_id = drone_link_;
     drone_lidar_tf_.child_frame_id = lidar_link_;
-    drone_lidar_tf_.transform.translation.x = lidar_offset_x_;
-    drone_lidar_tf_.transform.translation.y = lidar_offset_y_;
-    drone_lidar_tf_.transform.translation.z = lidar_offset_z_;
+    drone_lidar_tf_.transform.translation.x = lidar_mount_offset_x;
+    drone_lidar_tf_.transform.translation.y = lidar_mount_offset_y;
+    drone_lidar_tf_.transform.translation.z = lidar_mount_offset_z;
     drone_lidar_tf_.transform.rotation.w = q_lidar.a[0];
     drone_lidar_tf_.transform.rotation.x = q_lidar.a[1];
     drone_lidar_tf_.transform.rotation.y = q_lidar.a[2];
@@ -170,10 +201,10 @@ public:
       std::bind(&LidarMapper::orientation_callback, this, std::placeholders::_1)
     );
 
-    gps_sub_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
-      gps_topic_,
+    odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+      odom_topic_,
       qos,
-      std::bind(&LidarMapper::gps_callback, this, std::placeholders::_1)
+      std::bind(&LidarMapper::odom_callback, this, std::placeholders::_1)
     );
 
     pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
@@ -213,7 +244,7 @@ private:
   const std::string rc_topic_ = "/mavros/rc/in";
   const std::string scan_topic_ = "/ldlidar_node/scan";
   const std::string orientation_topic_ = "/mavros/imu/data";
-  const std::string gps_topic_ = "/mavros/global_position/global";
+  const std::string odom_topic_ = "mavros/local_position/odom";
   const std::string pose_topic_ = "/mavros/local_position/pose";
   const std::string sync_slice_point_cloud_topic_ = "/sync_slice_point_cloud";
 
@@ -229,7 +260,7 @@ private:
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr orientation_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
 
   message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_slice_scan_sub_;
@@ -238,14 +269,11 @@ private:
   mavros_msgs::msg::RCIn::SharedPtr last_rc_msg_;
   sensor_msgs::msg::LaserScan::SharedPtr last_scan_msg_;
   sensor_msgs::msg::Imu::SharedPtr last_orientation_msg_;
-  sensor_msgs::msg::NavSatFix::SharedPtr last_gps_msg_;
+  nav_msgs::msg::Odometry::SharedPtr last_odom_msg_;
   geometry_msgs::msg::PoseStamped::SharedPtr last_pose_msg_;
 
   laser_geometry::LaserProjection laser_projector_;
   geometry_msgs::msg::TransformStamped drone_lidar_tf_;
-  const double lidar_offset_x_ = 0.088;
-  const double lidar_offset_y_ = 0.0;
-  const double lidar_offset_z_ = 0.088;
 
   int sor_mean_k_ = 50;
   double sor_std_dev_mult_ = 1.0;
@@ -387,7 +415,7 @@ private:
           sync();
           writer_opened_ = false;
 
-          last_gps_msg_ = nullptr;
+          last_odom_msg_ = nullptr;
           last_orientation_msg_ = nullptr;
           last_pose_msg_ = nullptr;
           last_rc_msg_ = nullptr;
@@ -483,22 +511,22 @@ private:
 
 
   /**
-   * @brief Callback for GPS data
+   * @brief Callback for odometry data
    * 
-   * @param gps_msg GPS message pointer
+   * @param odom_msg Odometry message pointer
    */
-  void gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr gps_msg)
+  void odom_callback(const nav_msgs::msg::Odometry::SharedPtr odom_msg)
   {
-    last_gps_msg_ = gps_msg;
+    last_odom_msg_ = odom_msg;
 
     if (enable_bag_ && writer_opened_)
     {
-      auto serialized_gps_msg = std::make_shared<rclcpp::SerializedMessage>();
+      auto serialized_odom_msg = std::make_shared<rclcpp::SerializedMessage>();
 
-      rclcpp::Serialization<sensor_msgs::msg::NavSatFix> gps_serialization;
-      gps_serialization.serialize_message(gps_msg.get(), serialized_gps_msg.get());
-      writer_->write(serialized_gps_msg, gps_topic_,
-                     "sensor_msgs/msg/NavSatFix", gps_msg->header.stamp);
+      rclcpp::Serialization<nav_msgs::msg::Odometry> odom_serialization;
+      odom_serialization.serialize_message(odom_msg.get(), serialized_odom_msg.get());
+      writer_->write(serialized_odom_msg, odom_topic_,
+                     "nav_msgs/msg/Odometry", odom_msg->header.stamp);
     }
   }
 
