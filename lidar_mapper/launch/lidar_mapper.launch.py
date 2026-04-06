@@ -62,7 +62,12 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
     name = 'lidar_mapper_node',
     output = 'screen',
     parameters = [{
-      'lidar_mount_angle_deg': 30.0,
+      'lidar_mount_roll_deg': 0.0,
+      'lidar_mount_pitch_deg': 30.0,
+      'lidar_mount_yaw_deg': 0.0,
+      'lidar_mount_offset_x': 0.088,
+      'lidar_mount_offset_y': 0.0,
+      'lidar_mount_offset_z': 0.088,
       'mf_timeout': 0.25,
       'timestamp_tolerance': 0.11, # should be smaller than mf_timeout
       'sor_mean_k': 50,
