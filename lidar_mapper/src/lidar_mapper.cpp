@@ -27,12 +27,14 @@
 #include <tf2_ros/transform_broadcaster.hpp>
 #include <tf2_ros/transform_listener.hpp>
 #include <tf2_ros/buffer.hpp>
-#include <unistd.h>
-#include <message_filters/subscriber.h>
-#include <message_filters/sync_policies/approximate_time.h>
+#include <pcl_ros/transforms.hpp>
 #include <pcl/point_cloud.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/filters/voxel_grid.h>
+#include <unistd.h>
+#include <message_filters/subscriber.h>
+#include <message_filters/sync_policies/approximate_time.h>
 
 #include "ws2812b_control.hpp"
 
@@ -88,6 +90,10 @@ public:
     sor_std_dev_mult_param_desc.description = "Standard deviation multiplier for SOR filter";
     this->declare_parameter("sor_std_dev_mult", 1.0, sor_std_dev_mult_param_desc);
 
+    auto voxel_leaf_size_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
+    voxel_leaf_size_param_desc.description = "Leaf size for voxel filter";
+    this->declare_parameter("voxel_leaf_size", 0.1, voxel_leaf_size_param_desc);
+
     auto enable_bag_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     enable_bag_param_desc.description = "Enable or disable bag saving";
     this->declare_parameter("enable_bag", false, enable_bag_param_desc);
@@ -118,8 +124,10 @@ public:
 
     sor_mean_k_ = this->get_parameter("sor_mean_k").as_int();
     sor_std_dev_mult_ = this->get_parameter("sor_std_dev_mult").as_double();
+    voxel_leaf_size_ = static_cast<float>(this->get_parameter("voxel_leaf_size").as_double());
     RCLCPP_INFO(this->get_logger(), "Using SOR filter mean k parameter: %d", sor_mean_k_);
     RCLCPP_INFO(this->get_logger(), "Using SOR filter std dev mult parameter: %f", sor_std_dev_mult_);
+    RCLCPP_INFO(this->get_logger(), "Using voxel filter size parameter: %f", voxel_leaf_size_);
 
     if (sor_mean_k_ < 0 || sor_std_dev_mult_ < 0.0)
     {
@@ -139,11 +147,13 @@ public:
 
     led_strip_.clear();
 
-    auto qos = rclcpp::SensorDataQoS();
+    global_map_point_cloud_->header.frame_id = world_link_;
 
+    auto qos = rclcpp::SensorDataQoS();
 
     // publishers
     sync_slice_point_cloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(sync_slice_point_cloud_topic_, qos);
+    global_map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(global_map_topic_, qos);
 
     // tf
     boost::qvm::quat<double> q_x = boost::qvm::rotx_quat(lidar_mount_roll_deg * M_PI / 180.0);
@@ -234,7 +244,7 @@ public:
       }
       else
       {
-        RCLCPP_WARN(this->get_logger(), "Bag file already closed");
+        RCLCPP_WARN(this->get_logger(), "Bag file already closed!");
       }
     }
   }
@@ -244,18 +254,22 @@ private:
   const std::string rc_topic_ = "/mavros/rc/in";
   const std::string scan_topic_ = "/ldlidar_node/scan";
   const std::string orientation_topic_ = "/mavros/imu/data";
-  const std::string odom_topic_ = "mavros/local_position/odom";
+  const std::string odom_topic_ = "/mavros/local_position/odom";
   const std::string pose_topic_ = "/mavros/local_position/pose";
+
   const std::string sync_slice_point_cloud_topic_ = "/sync_slice_point_cloud";
+  const std::string global_map_topic_ = "/drone/global_map";
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+
   const std::string world_link_ = "map";
   const std::string drone_link_ = "base_link";
   const std::string lidar_link_ = "ldlidar_link";
 
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr sync_slice_point_cloud_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr global_map_pub_;
 
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
@@ -274,9 +288,11 @@ private:
 
   laser_geometry::LaserProjection laser_projector_;
   geometry_msgs::msg::TransformStamped drone_lidar_tf_;
+  pcl::PointCloud<pcl::PointXYZI>::Ptr global_map_point_cloud_{new pcl::PointCloud<pcl::PointXYZI>()};
 
   int sor_mean_k_ = 50;
   double sor_std_dev_mult_ = 1.0;
+  float voxel_leaf_size_ = 0.1f;
 
   bool enable_bag_ = false;
   const char* home_ = std::getenv("HOME");
@@ -334,16 +350,20 @@ private:
     // point cloud filtering
     pcl::PointCloud<pcl::PointXYZI>::Ptr sync_pcl_slice(new pcl::PointCloud<pcl::PointXYZI>());
     pcl::fromROSMsg(sync_slice_point_cloud_msg, *sync_pcl_slice);
+    if (sync_pcl_slice->empty())
+    {
+      RCLCPP_WARN(this->get_logger(), "PCL slice empty...");
+      return;
+    }
 
-    pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_sync_pcl_slice(new pcl::PointCloud<pcl::PointXYZI>());
     pcl::StatisticalOutlierRemoval<pcl::PointXYZI> sor;
     sor.setInputCloud(sync_pcl_slice);
     sor.setMeanK(sor_mean_k_);
     sor.setStddevMulThresh(sor_std_dev_mult_);
-    sor.filter(*filtered_sync_pcl_slice);
+    sor.filter(*sync_pcl_slice);
 
     sensor_msgs::msg::PointCloud2 filtered_sync_slice_point_cloud_msg;
-    pcl::toROSMsg(*filtered_sync_pcl_slice, filtered_sync_slice_point_cloud_msg);
+    pcl::toROSMsg(*sync_pcl_slice, filtered_sync_slice_point_cloud_msg);
     filtered_sync_slice_point_cloud_msg.header = sync_slice_point_cloud_msg.header;
 
     sync_slice_point_cloud_pub_->publish(filtered_sync_slice_point_cloud_msg);
@@ -356,6 +376,57 @@ private:
       writer_->write(serialized_point_cloud_msg, sync_slice_point_cloud_topic_,
                      "sensor_msgs/msg/PointCloud2", sync_slice_point_cloud_msg.header.stamp);
     }
+  }
+
+
+  /**
+   * @brief Callback for global point clouds
+   * 
+   * @param sync_slice_point_cloud_msg Point cloud message pointer
+   */
+  void global_map_callback(const sensor_msgs::msg::PointCloud2::SharedPtr sync_slice_point_cloud_msg)
+  {
+    if (script_start_state_ != 2)
+      return;
+
+    pcl::PointCloud<pcl::PointXYZI> pcl_slice;
+    pcl::fromROSMsg(*sync_slice_point_cloud_msg, pcl_slice);
+    pcl_slice.header.frame_id = sync_slice_point_cloud_msg->header.frame_id;
+
+    rclcpp::Time transform_time = sync_slice_point_cloud_msg->header.stamp;
+    if (!tf_buffer_->canTransform(world_link_,
+                                  pcl_slice.header.frame_id,
+                                  transform_time,
+                                  rclcpp::Duration::from_seconds(0.0)))
+    {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Transform not available yet, skipping this scan...");
+      return;
+    }
+
+    // transform to world frame
+    geometry_msgs::msg::TransformStamped tf = tf_buffer_->lookupTransform(
+      world_link_,
+      pcl_slice.header.frame_id,
+      sync_slice_point_cloud_msg->header.stamp,
+      rclcpp::Duration::from_seconds(0.0)
+    );
+    pcl_ros::transformPointCloud(pcl_slice, pcl_slice, tf);
+    pcl_slice.header.frame_id = world_link_;
+
+    // accumulate point clouds
+    *global_map_point_cloud_ += pcl_slice;
+
+    // global map
+    pcl::VoxelGrid<pcl::PointXYZI> voxel_filter;
+    voxel_filter.setInputCloud(global_map_point_cloud_);
+    voxel_filter.setLeafSize(voxel_leaf_size_, voxel_leaf_size_, voxel_leaf_size_);
+    voxel_filter.filter(*global_map_point_cloud_);
+
+    sensor_msgs::msg::PointCloud2 global_map_point_cloud_msg;
+    pcl::toROSMsg(*global_map_point_cloud_, global_map_point_cloud_msg);
+    global_map_point_cloud_msg.header.frame_id = global_map_point_cloud_->header.frame_id;
+    global_map_point_cloud_msg.header.stamp = sync_slice_point_cloud_msg->header.stamp;
+    global_map_pub_->publish(global_map_point_cloud_msg);
   }
 
 
@@ -414,6 +485,8 @@ private:
           writer_->close();
           sync();
           writer_opened_ = false;
+
+          global_map_point_cloud_->clear();
 
           last_odom_msg_ = nullptr;
           last_orientation_msg_ = nullptr;
