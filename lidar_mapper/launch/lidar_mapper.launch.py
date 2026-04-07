@@ -72,6 +72,7 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
       'timestamp_tolerance': 0.11, # should be smaller than mf_timeout
       'sor_mean_k': 50,
       'sor_std_dev_mult': 1.0,
+      'voxel_leaf_size': 0.1,
       'enable_bag': True
     }]
   )
