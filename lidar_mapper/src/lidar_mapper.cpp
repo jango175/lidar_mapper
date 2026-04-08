@@ -257,8 +257,8 @@ private:
   const std::string odom_topic_ = "/mavros/local_position/odom";
   const std::string pose_topic_ = "/mavros/local_position/pose";
 
-  const std::string sync_slice_point_cloud_topic_ = "/sync_slice_point_cloud";
-  const std::string global_map_topic_ = "/drone/global_map";
+  const std::string sync_slice_point_cloud_topic_ = "/lidar_mapper/sync_slice_point_cloud";
+  const std::string global_map_topic_ = "/lidar_mapper/global_map";
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -305,6 +305,7 @@ private:
 
   char time_format_[20];
   const size_t script_start_channel_ = 7;
+  const uint16_t channel_on_state_ = 1700;
   int script_start_state_ = 0;
 
   WS2812B led_strip_{"/dev/spidev1.0", 1};
@@ -446,7 +447,7 @@ private:
     }
     else
     {
-      if (last_rc_msg_->channels[script_start_channel_] > 1700)
+      if (last_rc_msg_->channels[script_start_channel_] > channel_on_state_)
       {
         switch (script_start_state_)
         {

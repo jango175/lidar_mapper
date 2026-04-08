@@ -90,7 +90,7 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
       'latch': True
     }],
     remappings = [
-      ('cloud_in', '/sync_slice_point_cloud')
+      ('cloud_in', '/lidar_mapper/sync_slice_point_cloud')
     ]
   )
 
