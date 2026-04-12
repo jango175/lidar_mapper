@@ -37,3 +37,4 @@ source ./install/local_setup.bash
 * https://github.com/OctoMap/octomap_mapping
 * https://github.com/OctoMap/octomap_rviz_plugins
 * https://github.com/alvinsunyixiao/vrpn_mocap
+* https://github.com/pointcloudlibrary/pcl
