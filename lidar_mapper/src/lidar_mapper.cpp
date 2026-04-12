@@ -202,7 +202,7 @@ public:
     tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
 
     // services
-    reset_octomap_client_ = this->create_client<std_srvs::srv::Empty>("/octomap_server/reset");
+    reset_octomap_client_ = this->create_client<std_srvs::srv::Empty>(reset_octomap_service_);
 
     // subscribers
     mf_slice_scan_sub_.subscribe(this, scan_topic_, qos.get_rmw_qos_profile());
@@ -279,6 +279,8 @@ private:
   const std::string orientation_topic_ = "/mavros/imu/data";
   const std::string odom_topic_ = "/mavros/local_position/odom";
   const std::string octomap_topic_ = "/octomap_binary";
+
+  const std::string reset_octomap_service_ = "/octomap_server/reset";
 
   const std::string sync_slice_point_cloud_topic_ = "/lidar_mapper/sync_slice_point_cloud";
   const std::string global_map_topic_ = "/lidar_mapper/global_map";
