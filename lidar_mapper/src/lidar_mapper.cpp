@@ -9,19 +9,18 @@
 
 #include <string>
 #include <ctime>
-#include <boost/qvm/quat.hpp>
-#include <boost/qvm/quat_operations.hpp>
 #include <rclcpp/node.hpp>
 #include <rclcpp/executors.hpp>
 #include <rclcpp/logging.hpp>
 #include <laser_geometry/laser_geometry.hpp>
 #include <mavros_msgs/msg/rc_in.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
-#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <rosbag2_cpp/writer.hpp>
+#include <tf2/LinearMath/Quaternion.hpp>
 #include <tf2_ros/message_filter.hpp>
 #include <tf2_ros/create_timer_ros.hpp>
 #include <tf2_ros/transform_broadcaster.hpp>
@@ -156,21 +155,22 @@ public:
     global_map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(global_map_topic_, qos);
 
     // tf
-    boost::qvm::quat<double> q_x = boost::qvm::rotx_quat(lidar_mount_roll_deg * M_PI / 180.0);
-    boost::qvm::quat<double> q_y = boost::qvm::roty_quat(lidar_mount_pitch_deg * M_PI / 180.0);
-    boost::qvm::quat<double> q_z = boost::qvm::rotz_quat(lidar_mount_yaw_deg * M_PI / 180.0);
-    boost::qvm::quat<double> q_lidar = q_z * q_y * q_x;
-    boost::qvm::normalize(q_lidar);
+    double lidar_roll = lidar_mount_roll_deg * M_PI / 180.0;
+    double lidar_pitch = lidar_mount_pitch_deg * M_PI / 180.0;
+    double lidar_yaw = lidar_mount_yaw_deg * M_PI / 180.0;
+    tf2::Quaternion q_lidar;
+    q_lidar.setRPY(lidar_roll, lidar_pitch, lidar_yaw);
+    q_lidar.normalize();
 
     drone_lidar_tf_.header.frame_id = drone_link_;
     drone_lidar_tf_.child_frame_id = lidar_link_;
     drone_lidar_tf_.transform.translation.x = lidar_mount_offset_x;
     drone_lidar_tf_.transform.translation.y = lidar_mount_offset_y;
     drone_lidar_tf_.transform.translation.z = lidar_mount_offset_z;
-    drone_lidar_tf_.transform.rotation.w = q_lidar.a[0];
-    drone_lidar_tf_.transform.rotation.x = q_lidar.a[1];
-    drone_lidar_tf_.transform.rotation.y = q_lidar.a[2];
-    drone_lidar_tf_.transform.rotation.z = q_lidar.a[3];
+    drone_lidar_tf_.transform.rotation.w = q_lidar.w();
+    drone_lidar_tf_.transform.rotation.x = q_lidar.x();
+    drone_lidar_tf_.transform.rotation.y = q_lidar.y();
+    drone_lidar_tf_.transform.rotation.z = q_lidar.z();
 
     auto timer_interface = std::make_shared<tf2_ros::CreateTimerROS>(
       this->get_node_base_interface(),
@@ -217,12 +217,6 @@ public:
       std::bind(&LidarMapper::odom_callback, this, std::placeholders::_1)
     );
 
-    pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-      pose_topic_,
-      qos,
-      std::bind(&LidarMapper::pose_callback, this, std::placeholders::_1)
-    );
-
     RCLCPP_INFO(this->get_logger(), "LIDAR mapper node has been started!");
   }
 
@@ -255,7 +249,6 @@ private:
   const std::string scan_topic_ = "/ldlidar_node/scan";
   const std::string orientation_topic_ = "/mavros/imu/data";
   const std::string odom_topic_ = "/mavros/local_position/odom";
-  const std::string pose_topic_ = "/mavros/local_position/pose";
 
   const std::string sync_slice_point_cloud_topic_ = "/lidar_mapper/sync_slice_point_cloud";
   const std::string global_map_topic_ = "/lidar_mapper/global_map";
@@ -275,7 +268,6 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr orientation_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
 
   message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_slice_scan_sub_;
   std::shared_ptr<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>> mf_slice_scan_tf2_;
@@ -284,7 +276,6 @@ private:
   sensor_msgs::msg::LaserScan::SharedPtr last_scan_msg_;
   sensor_msgs::msg::Imu::SharedPtr last_orientation_msg_;
   nav_msgs::msg::Odometry::SharedPtr last_odom_msg_;
-  geometry_msgs::msg::PoseStamped::SharedPtr last_pose_msg_;
 
   laser_geometry::LaserProjection laser_projector_;
   geometry_msgs::msg::TransformStamped drone_lidar_tf_;
@@ -491,7 +482,6 @@ private:
 
           last_odom_msg_ = nullptr;
           last_orientation_msg_ = nullptr;
-          last_pose_msg_ = nullptr;
           last_rc_msg_ = nullptr;
           last_scan_msg_ = nullptr;
         }
@@ -508,7 +498,7 @@ private:
 
       if (enable_bag_)
       {
-        if (last_scan_msg_ != nullptr && last_pose_msg_ != nullptr)
+        if (last_scan_msg_ != nullptr && last_odom_msg_ != nullptr)
         {
           if (writer_ && writer_opened_ == false)
           {
@@ -593,6 +583,24 @@ private:
   {
     last_odom_msg_ = odom_msg;
 
+    geometry_msgs::msg::TransformStamped world_drone_tf;
+    world_drone_tf.header.stamp = odom_msg->header.stamp;
+    world_drone_tf.header.frame_id = world_link_;
+    world_drone_tf.child_frame_id = drone_link_;
+    world_drone_tf.transform.translation.x = odom_msg->pose.pose.position.x;
+    world_drone_tf.transform.translation.y = odom_msg->pose.pose.position.y;
+    world_drone_tf.transform.translation.z = odom_msg->pose.pose.position.z;
+    world_drone_tf.transform.rotation.w = odom_msg->pose.pose.orientation.w;
+    world_drone_tf.transform.rotation.x = odom_msg->pose.pose.orientation.x;
+    world_drone_tf.transform.rotation.y = odom_msg->pose.pose.orientation.y;
+    world_drone_tf.transform.rotation.z = odom_msg->pose.pose.orientation.z;
+
+    // update just timestamp
+    drone_lidar_tf_.header.stamp = odom_msg->header.stamp;
+
+    tf_broadcaster_->sendTransform(world_drone_tf);
+    tf_broadcaster_->sendTransform(drone_lidar_tf_);
+
     if (enable_bag_ && writer_opened_)
     {
       auto serialized_odom_msg = std::make_shared<rclcpp::SerializedMessage>();
@@ -601,45 +609,6 @@ private:
       odom_serialization.serialize_message(odom_msg.get(), serialized_odom_msg.get());
       writer_->write(serialized_odom_msg, odom_topic_,
                      "nav_msgs/msg/Odometry", odom_msg->header.stamp);
-    }
-  }
-
-
-  /**
-   * @brief Callback for local position data
-   * 
-   * @param pose_msg Local position message pointer
-   */
-  void pose_callback(const geometry_msgs::msg::PoseStamped::SharedPtr pose_msg)
-  {
-    last_pose_msg_ = pose_msg;
-
-    geometry_msgs::msg::TransformStamped world_drone_tf;
-    world_drone_tf.header.stamp = pose_msg->header.stamp;
-    world_drone_tf.header.frame_id = world_link_;
-    world_drone_tf.child_frame_id = drone_link_;
-    world_drone_tf.transform.translation.x = pose_msg->pose.position.x;
-    world_drone_tf.transform.translation.y = pose_msg->pose.position.y;
-    world_drone_tf.transform.translation.z = pose_msg->pose.position.z;
-    world_drone_tf.transform.rotation.w = pose_msg->pose.orientation.w;
-    world_drone_tf.transform.rotation.x = pose_msg->pose.orientation.x;
-    world_drone_tf.transform.rotation.y = pose_msg->pose.orientation.y;
-    world_drone_tf.transform.rotation.z = pose_msg->pose.orientation.z;
-
-    // update just timestamp
-    drone_lidar_tf_.header.stamp = pose_msg->header.stamp;
-
-    tf_broadcaster_->sendTransform(world_drone_tf);
-    tf_broadcaster_->sendTransform(drone_lidar_tf_);
-
-    if (enable_bag_ && writer_opened_)
-    {
-      auto serialized_pose_msg = std::make_shared<rclcpp::SerializedMessage>();
-
-      rclcpp::Serialization<geometry_msgs::msg::PoseStamped> pose_serialization;
-      pose_serialization.serialize_message(pose_msg.get(), serialized_pose_msg.get());
-      writer_->write(serialized_pose_msg, pose_topic_,
-                     "geometry_msgs/msg/PoseStamped", pose_msg->header.stamp);
     }
   }
 };
