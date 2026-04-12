@@ -21,6 +21,7 @@
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <rosbag2_cpp/writer.hpp>
+#include <std_srvs/srv/empty.hpp>
 #include <octomap_msgs/msg/octomap.hpp>
 #include <octomap_msgs/conversions.h>
 #include <octomap/octomap.h>
@@ -200,6 +201,9 @@ public:
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
     tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
 
+    // services
+    reset_octomap_client_ = this->create_client<std_srvs::srv::Empty>("/octomap_server/reset");
+
     // subscribers
     mf_slice_scan_sub_.subscribe(this, scan_topic_, qos.get_rmw_qos_profile());
 
@@ -287,6 +291,8 @@ private:
   std::string drone_link_ = "base_link";
   std::string lidar_link_ = "ldlidar_link";
 
+  rclcpp::Client<std_srvs::srv::Empty>::SharedPtr reset_octomap_client_;
+
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr sync_slice_point_cloud_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr global_map_pub_;
 
@@ -343,6 +349,25 @@ private:
 
 
   /**
+   * @brief Reset octomap service
+   * 
+   */
+  void clear_octomap()
+  {
+    if (!reset_octomap_client_->wait_for_service(std::chrono::seconds(1)))
+    {
+      RCLCPP_ERROR(this->get_logger(), "Octomap reset service is not available!");
+      return;
+    }
+
+    auto request = std::make_shared<std_srvs::srv::Empty::Request>();
+    auto result_future = reset_octomap_client_->async_send_request(request);
+
+    RCLCPP_INFO(this->get_logger(), "Global octomap successfully cleared!");
+  }
+
+
+  /**
    * @brief Callback for deskewed scan data
    * 
    * @param slice_scan_msg Laser slice scan message pointer
@@ -387,7 +412,7 @@ private:
 
     sync_slice_point_cloud_pub_->publish(filtered_sync_slice_point_cloud_msg);
 
-    if (enable_bag_ && writer_opened_)
+    if (writer_ && enable_bag_ && writer_opened_)
     {
       auto serialized_point_cloud_msg = std::make_shared<rclcpp::SerializedMessage>();
       rclcpp::Serialization<sensor_msgs::msg::PointCloud2> point_cloud_serialization;
@@ -405,10 +430,13 @@ private:
    */
   void octomap_callback(const octomap_msgs::msg::Octomap::SharedPtr octomap_msg)
   {
+    if (script_start_state_ != 2)
+      return;
+
     if (!tf_buffer_->canTransform(world_link_,
                                   drone_link_,
-                                          octomap_msg->header.stamp,
-                                       rclcpp::Duration::from_seconds(0.0)))
+                                  octomap_msg->header.stamp,
+                                  rclcpp::Duration::from_seconds(0.0)))
     {
       RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Transform not available yet, skipping this octomap...");
       return;
@@ -512,9 +540,11 @@ private:
       {
         if (writer_ && writer_opened_)
         {
+          writer_opened_ = false;
           writer_->close();
           sync();
-          writer_opened_ = false;
+
+          clear_octomap();
 
           latest_odom_msg_ = nullptr;
           latest_orientation_msg_ = nullptr;
@@ -556,7 +586,7 @@ private:
       led_strip_.show();
     }
 
-    if (enable_bag_ && writer_opened_)
+    if (writer_ && enable_bag_ && writer_opened_)
     {
       auto serialized_rc_msg = std::make_shared<rclcpp::SerializedMessage>();
 
@@ -577,7 +607,7 @@ private:
   {
     latest_scan_msg_ = scan_msg;
 
-    if (enable_bag_ && writer_opened_)
+    if (writer_ && enable_bag_ && writer_opened_)
     {
       auto serialized_scan_msg = std::make_shared<rclcpp::SerializedMessage>();
 
@@ -598,7 +628,7 @@ private:
   {
     latest_orientation_msg_ = orientation_msg;
 
-    if (enable_bag_ && writer_opened_)
+    if (writer_ && enable_bag_ && writer_opened_)
     {
       auto serialized_orientation_msg = std::make_shared<rclcpp::SerializedMessage>();
 
@@ -637,7 +667,7 @@ private:
     tf_broadcaster_->sendTransform(world_drone_tf);
     tf_broadcaster_->sendTransform(drone_lidar_tf_);
 
-    if (enable_bag_ && writer_opened_)
+    if (writer_ && enable_bag_ && writer_opened_)
     {
       auto serialized_odom_msg = std::make_shared<rclcpp::SerializedMessage>();
 

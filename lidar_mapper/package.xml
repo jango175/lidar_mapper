@@ -12,6 +12,7 @@
   <exec_depend>ros2launch</exec_depend>
 
   <depend>rclcpp</depend>
+  <depend>std_srvs</depend>
   <depend>message_filters</depend>
   <depend>mavros_msgs</depend>
   <depend>sensor_msgs</depend>

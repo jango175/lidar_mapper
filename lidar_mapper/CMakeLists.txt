@@ -13,6 +13,7 @@ add_subdirectory(lib/ws2812b_control)
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(mavros_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -32,6 +33,7 @@ find_package(PCL REQUIRED)
 add_executable(${NODE_NAME} src/lidar_mapper.cpp)
 ament_target_dependencies(${NODE_NAME}
   rclcpp
+  std_srvs
   message_filters
   mavros_msgs
   sensor_msgs
