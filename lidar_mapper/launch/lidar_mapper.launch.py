@@ -8,6 +8,10 @@ from launch_ros.actions import Node
 
 
 def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
+  world_link = LaunchConfiguration('world_link').perform(context)
+  drone_link = LaunchConfiguration('drone_link').perform(context)
+  lidar_link = LaunchConfiguration('lidar_link').perform(context)
+
   use_optitrack = LaunchConfiguration('use_optitrack').perform(context).lower() == 'true'
   rigid_body_name = LaunchConfiguration('rigid_body_name').perform(context)
 
@@ -68,11 +72,14 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
       'lidar_mount_offset_x': 0.088,
       'lidar_mount_offset_y': 0.0,
       'lidar_mount_offset_z': 0.088,
+      'world_link': world_link,
+      'drone_link': drone_link,
+      'lidar_link': lidar_link,
       'mf_timeout': 0.25,
       'timestamp_tolerance': 0.11, # should be smaller than mf_timeout
+      'window_size': 20.0,
       'sor_mean_k': 50,
       'sor_std_dev_mult': 1.0,
-      'voxel_leaf_size': 0.1,
       'enable_bag': True
     }]
   )
@@ -84,8 +91,8 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
     output = 'log',
     parameters = [{
       'resolution': 0.15,
-      'frame_id': 'map',
-      'base_frame_id': 'base_link',
+      'frame_id': world_link,
+      'base_frame_id': drone_link,
       'sensor_model.max_range': 12.0,
       'latch': True
     }],
@@ -142,6 +149,24 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
 
 
 def generate_launch_description():
+  world_link_arg = DeclareLaunchArgument(
+    'world_link',
+    default_value = 'map',
+    description = 'World link name'
+  )
+
+  drone_link_arg = DeclareLaunchArgument(
+    'drone_link',
+    default_value = 'base_link',
+    description = 'Drone link name'
+  )
+
+  lidar_link_arg = DeclareLaunchArgument(
+    'lidar_link',
+    default_value = 'ldlidar_link',
+    description = 'LIDAR link name'
+  )
+
   use_optitrack_arg = DeclareLaunchArgument(
     'use_optitrack',
     default_value = 'false',
@@ -155,6 +180,9 @@ def generate_launch_description():
   )
 
   return LaunchDescription([
+    world_link_arg,
+    drone_link_arg,
+    lidar_link_arg,
     use_optitrack_arg,
     rigid_body_arg,
     OpaqueFunction(function = setup_nodes)
