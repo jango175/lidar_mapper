@@ -20,13 +20,16 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
 find_package(laser_geometry REQUIRED)
+find_package(octomap REQUIRED)
+find_package(octomap_msgs REQUIRED)
+find_package(octomap_server REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(PCL REQUIRED)
 
-add_executable(${NODE_NAME} src/lidar_mapper.cpp) 
+add_executable(${NODE_NAME} src/lidar_mapper.cpp)
 ament_target_dependencies(${NODE_NAME}
   rclcpp
   message_filters
@@ -36,6 +39,9 @@ ament_target_dependencies(${NODE_NAME}
   geometry_msgs
   rosbag2_cpp
   laser_geometry
+  octomap
+  octomap_msgs
+  octomap_server
   tf2
   tf2_ros
   pcl_conversions
