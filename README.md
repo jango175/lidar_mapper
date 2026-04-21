@@ -1,6 +1,6 @@
 # lidar_mapper
 
-ROS2 package for drone LIDAR 3D mapping.
+ROS 2 package for drone LiDAR 3D mapping.
 
 ## Dependencies
 ```bash
@@ -30,6 +30,16 @@ rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install --cmake-args=-DCMAKE_BUILD_TYPE=Release
 source ./install/local_setup.bash
 ```
+
+## Run
+```bash
+ros2 launch lidar_mapper lidar_mapper.launch.py
+```
+or
+```bash
+ros2 launch lidar_mapper lidar_mapper.launch.py use_optitrack:='true'
+```
+or just enable the service on the startup.
 
 ## Sources
 * https://github.com/Myzhar/ldrobot-lidar-ros2
