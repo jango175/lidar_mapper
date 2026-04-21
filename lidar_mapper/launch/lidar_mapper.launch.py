@@ -131,7 +131,7 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
             'ros2', 'topic', 'pub', '--once',
             '/mavros/global_position/set_gp_origin',
             'geographic_msgs/msg/GeoPointStamped',
-            '"{header: {frame_id: \'map\'}, position: {latitude: 55.470368, longitude: 10.329439, altitude: 15.0}}"'
+            "{header: {frame_id: 'map'}, position: {latitude: 55.470368, longitude: 10.329439, altitude: 15.0}}"
           ],
           output = 'log'
         )

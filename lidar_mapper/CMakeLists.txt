@@ -70,6 +70,7 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}
 )
 
+# install scripts
 install(PROGRAMS
   scripts/mocap_relay.py
   DESTINATION lib/${PROJECT_NAME}
