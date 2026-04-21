@@ -15,7 +15,7 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
   use_optitrack = LaunchConfiguration('use_optitrack').perform(context).lower() == 'true'
   rigid_body_name = LaunchConfiguration('rigid_body_name').perform(context)
 
-  ip_address = 'udp://@10.48.59.188:14550' # Hotspot
+  ip_address = 'udp://@10.49.187.188:14550' # Hotspot
   if use_optitrack:
     ip_address = 'udp://@192.168.16.63:14550' # OptiTrack
 
@@ -115,15 +115,12 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
       ]
     )
 
-    relay_node = Node(
-      package = 'topic_tools',
-      executable = 'relay',
+    mocap_relay_node = Node(
+      package = 'lidar_mapper',
+      executable = 'mocap_relay.py',
       name = 'mocap_relay_node',
-      output = 'log',
-      remappings = [
-        ('input', f'/vrpn_mocap/{rigid_body_name}/pose'),
-        ('output', '/mavros/vision_pose/pose')
-      ]
+      output = 'screen',
+      arguments = [rigid_body_name]
     )
 
     set_origin_cmd = TimerAction(
@@ -142,7 +139,7 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
     )
 
     nodes_to_launch.append(vrpn_node)
-    nodes_to_launch.append(relay_node)
+    nodes_to_launch.append(mocap_relay_node)
     nodes_to_launch.append(set_origin_cmd)
 
   return nodes_to_launch
