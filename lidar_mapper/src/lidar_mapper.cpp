@@ -10,6 +10,7 @@
 #include <string>
 #include <ctime>
 #include <memory>
+#include <filesystem>
 #include <rclcpp/node.hpp>
 #include <rclcpp/executors.hpp>
 #include <rclcpp/logging.hpp>
@@ -52,6 +53,16 @@ public:
    */
   LidarMapper() : Node("lidar_mapper")
   {
+    if (std::filesystem::exists(led_path_))
+    {
+      RCLCPP_INFO(this->get_logger(), "SPI device found. Initializing LED strip...");
+      led_strip_ = std::make_unique<WS2812B>(led_path_.c_str(), led_num_);
+    }
+    else
+    {
+      RCLCPP_WARN(this->get_logger(), "SPI device not found. LEDs will be disabled.");
+    }
+
     // parameters
     auto lidar_mount_roll_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     lidar_mount_roll_param_desc.description = "LIDAR mount roll angle in degrees";
@@ -166,7 +177,10 @@ public:
       RCLCPP_INFO(this->get_logger(), "Recording to bag file: %s", bag_name_.c_str());
     }
 
-    led_strip_.clear();
+    if (led_strip_)
+    {
+      led_strip_->clear();
+    }
 
     auto qos = rclcpp::SensorDataQoS();
 
@@ -334,7 +348,9 @@ private:
   const uint16_t channel_on_state_ = 1700;
   int script_start_state_ = 0;
 
-  WS2812B led_strip_{"/dev/spidev1.0", 1};
+  const std::string led_path_ = "/dev/spidev1.0";
+  const int led_num_ = 1;
+  std::unique_ptr<WS2812B> led_strip_ = nullptr;
 
 
   /**
@@ -377,7 +393,9 @@ private:
   void sync_slice_scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr slice_scan_msg)
   {
     if (script_start_state_ != 2)
+    {
       return;
+    }
 
     rclcpp::Duration scan_duration = rclcpp::Duration::from_seconds(slice_scan_msg->ranges.size() * slice_scan_msg->time_increment);
     rclcpp::Time end_of_scan = rclcpp::Time(slice_scan_msg->header.stamp) + scan_duration;
@@ -433,7 +451,9 @@ private:
   void octomap_callback(const octomap_msgs::msg::Octomap::SharedPtr octomap_msg)
   {
     if (script_start_state_ != 2)
+    {
       return;
+    }
 
     if (!tf_buffer_->canTransform(world_link_,
                                   drone_link_,
@@ -458,11 +478,15 @@ private:
     octomap::AbstractOcTree* raw_tree = octomap_msgs::binaryMsgToMap(*octomap_msg);
     std::unique_ptr<octomap::AbstractOcTree> abstract_tree(raw_tree);
     if (!abstract_tree)
+    {
       return;
+    }
 
     octomap::OcTree* octree = dynamic_cast<octomap::OcTree*>(abstract_tree.get());
     if (!octree)
+    {
       return;
+    }
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr global_map_point_cloud(new pcl::PointCloud<pcl::PointXYZ>());
     global_map_point_cloud->header.frame_id = world_link_;
@@ -555,14 +579,20 @@ private:
         }
       }
 
-      led_strip_.set_pixel(0, 255, 255, 255);
-      led_strip_.show();
+      if (led_strip_)
+      {
+        led_strip_->set_pixel(0, 255, 255, 255);
+        led_strip_->show();
+      }
 
       RCLCPP_WARN(this->get_logger(), "Script not started yet...");
     }
     else
     {
-      led_strip_.set_pixel(0, 255, 0, 0);
+      if (led_strip_)
+      {
+        led_strip_->set_pixel(0, 255, 0, 0);
+      }
 
       if (enable_bag_)
       {
@@ -581,11 +611,17 @@ private:
         else
         {
           RCLCPP_WARN(this->get_logger(), "Needed data not available yet");
-          led_strip_.set_pixel(0, 100, 100, 100);
+          if (led_strip_)
+          {
+            led_strip_->set_pixel(0, 100, 100, 100);
+          }
         }
       }
 
-      led_strip_.show();
+      if (led_strip_)
+      {
+        led_strip_->show();
+      }
     }
 
     if (writer_ && enable_bag_ && writer_opened_)
