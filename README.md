@@ -23,6 +23,8 @@ sudo systemctl enable lidar_mappper.service
 sudo systemctl start lidar_mapper.service
 ```
 
+You might also want to disable the power save in: `/etc/NetworkManager/conf.d/default-wifi-powersave-on.conf`.
+
 ## Build
 ```bash
 cd ~/ros2_ws
@@ -46,5 +48,5 @@ or just enable the service on the startup.
 * https://github.com/mavlink/mavros
 * https://github.com/OctoMap/octomap_mapping
 * https://github.com/OctoMap/octomap_rviz_plugins
-* https://github.com/alvinsunyixiao/vrpn_mocap
 * https://github.com/pointcloudlibrary/pcl
+* https://github.com/alvinsunyixiao/vrpn_mocap

@@ -1,6 +1,7 @@
 [Unit]
 Description=Lidar Mapper ROS2 Service
-After=network.target sound.target
+After=network.target
+Wants=network.target
 
 [Service]
 Type=simple
