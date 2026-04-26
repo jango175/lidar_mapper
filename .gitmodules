@@ -1,0 +1,4 @@
+[submodule "ego-planner-swarm"]
+	path = ego-planner-swarm
+	url = git@github.com:jango175/ego-planner-swarm.git
+	branch = ros2_version
