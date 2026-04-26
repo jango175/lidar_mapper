@@ -16,6 +16,8 @@ sudo apt install ros-jazzy-octomap-rviz-plugins
 sudo apt install ros-jazzy-topic-tools
 sudo apt install libomp-dev
 
+git submodule update --init --recursive
+
 cd services/
 sudo cp lidar_mapper.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -50,3 +52,4 @@ or just enable the service on the startup.
 * https://github.com/OctoMap/octomap_rviz_plugins
 * https://github.com/pointcloudlibrary/pcl
 * https://github.com/alvinsunyixiao/vrpn_mocap
+* https://github.com/jango175/ego-planner-swarm
