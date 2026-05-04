@@ -71,7 +71,7 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
       'lidar_mount_yaw_deg': 0.0,
       'lidar_mount_offset_x': 0.088,
       'lidar_mount_offset_y': 0.0,
-      'lidar_mount_offset_z': 0.088,
+      'lidar_mount_offset_z': 0.073,
       'world_link': world_link,
       'drone_link': drone_link,
       'lidar_link': lidar_link,

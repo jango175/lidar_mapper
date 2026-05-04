@@ -86,7 +86,7 @@ public:
 
     auto lidar_mount_offset_z_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     lidar_mount_offset_z_param_desc.description = "LIDAR mount offset in Z axis in metres";
-    this->declare_parameter("lidar_mount_offset_z", 0.088, lidar_mount_offset_z_param_desc);
+    this->declare_parameter("lidar_mount_offset_z", 0.073, lidar_mount_offset_z_param_desc);
 
     auto world_link_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
     world_link_param_desc.description = "World link name";
