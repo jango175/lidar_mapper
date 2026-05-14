@@ -1,5 +1,4 @@
 # lidar_mapper
-
 ROS 2 package for drone LiDAR 3D mapping.
 
 ## Dependencies
@@ -44,6 +43,22 @@ or
 ros2 launch lidar_mapper lidar_mapper.launch.py use_optitrack:='true'
 ```
 or just enable the service on the startup.
+
+This script can be paired with the `ego-planner-swarm` trajectory planner (!!! USE AT YOUR OWN RISK !!!).
+```bash
+RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ros2 launch ego_planner ldlidar_advanced_param.launch.py
+```
+
+Send a waypoint for the `ego_planner` with:
+```bash
+ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped "{
+  header: {frame_id: 'map'},
+  pose: {
+    position: {x: 4.0, y: 4.0, z: 3.0},
+    orientation: {w: 1.0}
+  }
+}"
+```
 
 ## Sources
 * https://github.com/Myzhar/ldrobot-lidar-ros2
