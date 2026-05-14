@@ -15,9 +15,9 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
   use_optitrack = LaunchConfiguration('use_optitrack').perform(context).lower() == 'true'
   rigid_body_name = LaunchConfiguration('rigid_body_name').perform(context)
 
-  ip_address = 'udp://@10.49.187.188:14550' # Hotspot
+  ip_address = 'udp://@10.49.187.188:14550' # ground station laptop (change to yours)
   if use_optitrack:
-    ip_address = 'udp://@192.168.16.63:14550' # OptiTrack
+    ip_address = 'udp://@192.168.16.63:14550' # OptiTrack network (change to yours)
 
   ldlidar_pkg = get_package_share_directory('ldlidar_node')
   ldlidar_node = IncludeLaunchDescription(
@@ -110,8 +110,8 @@ def setup_nodes(context: LaunchContext, *_args: object, **_kwargs: object):
         os.path.join(vrpn_mocap_pkg, 'launch', 'client.launch.yaml')
       ),
       launch_arguments = [
-        ('server', '192.168.16.50'),
-        ('port', '3883'),
+        ('server', '192.168.16.50'), # OptiTrack IP (change to yours)
+        ('port', '3883'), # OptiTrack port (change to yours)
       ]
     )
 
@@ -161,7 +161,7 @@ def generate_launch_description():
   lidar_link_arg = DeclareLaunchArgument(
     'lidar_link',
     default_value = 'ldlidar_link',
-    description = 'LIDAR link name'
+    description = 'LiDAR link name'
   )
 
   use_optitrack_arg = DeclareLaunchArgument(

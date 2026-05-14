@@ -1,7 +1,7 @@
 /**
  * @file lidar_mapper.cpp
  * @author jango175
- * @brief LIDAR mapper ROS2 node
+ * @brief LiDAR mapper ROS2 node
  * 
  * @copyright Copyright (c) 2026
  * 
@@ -48,7 +48,7 @@ class LidarMapper : public rclcpp::Node
 {
 public:
   /**
-   * @brief Construct a new Lidar Mapper object
+   * @brief Construct a new LidarMapper object
    * 
    */
   LidarMapper() : Node("lidar_mapper")
@@ -65,27 +65,27 @@ public:
 
     // parameters
     auto lidar_mount_roll_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    lidar_mount_roll_param_desc.description = "LIDAR mount roll angle in degrees";
+    lidar_mount_roll_param_desc.description = "LiDAR mount roll angle in degrees";
     this->declare_parameter("lidar_mount_roll_deg", 0.0, lidar_mount_roll_param_desc);
 
     auto lidar_mount_pitch_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    lidar_mount_pitch_param_desc.description = "LIDAR mount pitch angle in degrees";
+    lidar_mount_pitch_param_desc.description = "LiDAR mount pitch angle in degrees";
     this->declare_parameter("lidar_mount_pitch_deg", 30.0, lidar_mount_pitch_param_desc);
 
     auto lidar_mount_yaw_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    lidar_mount_yaw_param_desc.description = "LIDAR mount yaw angle in degrees";
+    lidar_mount_yaw_param_desc.description = "LiDAR mount yaw angle in degrees";
     this->declare_parameter("lidar_mount_yaw_deg", 0.0, lidar_mount_yaw_param_desc);
 
     auto lidar_mount_offset_x_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    lidar_mount_offset_x_param_desc.description = "LIDAR mount offset in X axis in metres";
+    lidar_mount_offset_x_param_desc.description = "LiDAR mount offset in X axis in metres";
     this->declare_parameter("lidar_mount_offset_x", 0.088, lidar_mount_offset_x_param_desc);
 
     auto lidar_mount_offset_y_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    lidar_mount_offset_y_param_desc.description = "LIDAR mount offset in Y axis in metres";
+    lidar_mount_offset_y_param_desc.description = "LiDAR mount offset in Y axis in metres";
     this->declare_parameter("lidar_mount_offset_y", 0.0, lidar_mount_offset_y_param_desc);
 
     auto lidar_mount_offset_z_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    lidar_mount_offset_z_param_desc.description = "LIDAR mount offset in Z axis in metres";
+    lidar_mount_offset_z_param_desc.description = "LiDAR mount offset in Z axis in metres";
     this->declare_parameter("lidar_mount_offset_z", 0.073, lidar_mount_offset_z_param_desc);
 
     auto world_link_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
@@ -97,7 +97,7 @@ public:
     this->declare_parameter("drone_link", "base_link", drone_link_param_desc);
 
     auto lidar_link_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
-    lidar_link_param_desc.description = "LIDAR link name";
+    lidar_link_param_desc.description = "LiDAR link name";
     this->declare_parameter("lidar_link", "ldlidar_link", lidar_link_param_desc);
 
     auto mf_timeout_param_desc = rcl_interfaces::msg::ParameterDescriptor{};
@@ -130,12 +130,12 @@ public:
     const double lidar_mount_offset_x = this->get_parameter("lidar_mount_offset_x").as_double();
     const double lidar_mount_offset_y = this->get_parameter("lidar_mount_offset_y").as_double();
     const double lidar_mount_offset_z = this->get_parameter("lidar_mount_offset_z").as_double();
-    RCLCPP_INFO(this->get_logger(), "LIDAR mounting roll: %f deg", lidar_mount_roll_deg);
-    RCLCPP_INFO(this->get_logger(), "LIDAR mounting pitch: %f deg", lidar_mount_pitch_deg);
-    RCLCPP_INFO(this->get_logger(), "LIDAR mounting yaw: %f deg", lidar_mount_yaw_deg);
-    RCLCPP_INFO(this->get_logger(), "LIDAR mounting offset X: %f m", lidar_mount_offset_x);
-    RCLCPP_INFO(this->get_logger(), "LIDAR mounting offset Y: %f m", lidar_mount_offset_y);
-    RCLCPP_INFO(this->get_logger(), "LIDAR mounting offset Z: %f m", lidar_mount_offset_z);
+    RCLCPP_INFO(this->get_logger(), "LiDAR mounting roll: %f deg", lidar_mount_roll_deg);
+    RCLCPP_INFO(this->get_logger(), "LiDAR mounting pitch: %f deg", lidar_mount_pitch_deg);
+    RCLCPP_INFO(this->get_logger(), "LiDAR mounting yaw: %f deg", lidar_mount_yaw_deg);
+    RCLCPP_INFO(this->get_logger(), "LiDAR mounting offset X: %f m", lidar_mount_offset_x);
+    RCLCPP_INFO(this->get_logger(), "LiDAR mounting offset Y: %f m", lidar_mount_offset_y);
+    RCLCPP_INFO(this->get_logger(), "LiDAR mounting offset Z: %f m", lidar_mount_offset_z);
 
     world_link_ = this->get_parameter("world_link").as_string();
     drone_link_ = this->get_parameter("drone_link").as_string();
@@ -260,12 +260,12 @@ public:
       std::bind(&LidarMapper::octomap_callback, this, std::placeholders::_1)
     );
 
-    RCLCPP_INFO(this->get_logger(), "LIDAR mapper node has been started!");
+    RCLCPP_INFO(this->get_logger(), "LiDAR mapper node has been started!");
   }
 
 
   /**
-   * @brief Destroy the Lidar Mapper object
+   * @brief Destroy the LidarMapper object
    * 
    */
   ~LidarMapper()
@@ -735,7 +735,7 @@ int main(int argc, char* argv[])
 {
   rclcpp::init(argc, argv);
 
-  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Starting LIDAR mapper node...");
+  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Starting LiDAR mapper node...");
 
   rclcpp::spin(std::make_shared<LidarMapper>());
 
