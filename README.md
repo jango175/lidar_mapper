@@ -26,6 +26,8 @@ sudo systemctl start lidar_mapper.service
 
 You might also want to disable the power save in: `/etc/NetworkManager/conf.d/default-wifi-powersave-on.conf`.
 
+Change the IP addresses in `/launch/lidar_mapper.launch.py` accordingly.
+
 ## Build
 ```bash
 cd ~/ros2_ws
