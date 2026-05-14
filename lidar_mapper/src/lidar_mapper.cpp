@@ -182,8 +182,6 @@ public:
       led_strip_->clear();
     }
 
-    global_map_point_cloud_.reset(new pcl::PointCloud<pcl::PointXYZI>());
-
     auto qos = rclcpp::SensorDataQoS();
 
     // publishers
@@ -331,12 +329,13 @@ private:
   laser_geometry::LaserProjection laser_projector_;
   geometry_msgs::msg::TransformStamped drone_lidar_tf_;
 
+  pcl::PointCloud<pcl::PointXYZI>::Ptr sync_pcl_slice_ = pcl::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+  pcl::PointCloud<pcl::PointXYZI>::Ptr global_map_point_cloud_ = pcl::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+
   double window_size_ = 20.0;
 
   int sor_mean_k_ = 50;
   double sor_std_dev_mult_ = 1.0;
-
-  pcl::PointCloud<pcl::PointXYZI>::Ptr global_map_point_cloud_;
 
   bool enable_bag_ = false;
   const char* home_ = std::getenv("HOME");
@@ -416,22 +415,22 @@ private:
     laser_projector_.transformLaserScanToPointCloud(drone_link_, *slice_scan_msg, sync_slice_point_cloud_msg, *tf_buffer_);
 
     // point cloud filtering
-    pcl::PointCloud<pcl::PointXYZI>::Ptr sync_pcl_slice(new pcl::PointCloud<pcl::PointXYZI>());
-    pcl::fromROSMsg(sync_slice_point_cloud_msg, *sync_pcl_slice);
-    if (sync_pcl_slice->empty())
+    sync_pcl_slice_->clear();
+    pcl::fromROSMsg(sync_slice_point_cloud_msg, *sync_pcl_slice_);
+    if (sync_pcl_slice_->empty())
     {
       RCLCPP_WARN(this->get_logger(), "PCL slice empty...");
       return;
     }
 
     pcl::StatisticalOutlierRemoval<pcl::PointXYZI> sor;
-    sor.setInputCloud(sync_pcl_slice);
+    sor.setInputCloud(sync_pcl_slice_);
     sor.setMeanK(sor_mean_k_);
     sor.setStddevMulThresh(sor_std_dev_mult_);
-    sor.filter(*sync_pcl_slice);
+    sor.filter(*sync_pcl_slice_);
 
     sensor_msgs::msg::PointCloud2 filtered_sync_slice_point_cloud_msg;
-    pcl::toROSMsg(*sync_pcl_slice, filtered_sync_slice_point_cloud_msg);
+    pcl::toROSMsg(*sync_pcl_slice_, filtered_sync_slice_point_cloud_msg);
     filtered_sync_slice_point_cloud_msg.header = sync_slice_point_cloud_msg.header;
 
     sync_slice_point_cloud_pub_->publish(filtered_sync_slice_point_cloud_msg);
@@ -575,6 +574,7 @@ private:
           sync();
 
           clear_octomap();
+          sync_pcl_slice_->clear();
           global_map_point_cloud_->clear();
 
           latest_odom_msg_ = nullptr;
