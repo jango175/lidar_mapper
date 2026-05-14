@@ -182,6 +182,8 @@ public:
       led_strip_->clear();
     }
 
+    global_map_point_cloud_.reset(new pcl::PointCloud<pcl::PointXYZI>());
+
     auto qos = rclcpp::SensorDataQoS();
 
     // publishers
@@ -292,7 +294,7 @@ private:
   const std::string scan_topic_ = "/ldlidar_node/scan";
   const std::string orientation_topic_ = "/mavros/imu/data";
   const std::string odom_topic_ = "/mavros/local_position/odom";
-  const std::string octomap_topic_ = "/octomap_binary";
+  const std::string octomap_topic_ = "/octomap_full";
 
   const std::string reset_octomap_service_ = "/octomap_server/reset";
 
@@ -333,6 +335,8 @@ private:
 
   int sor_mean_k_ = 50;
   double sor_std_dev_mult_ = 1.0;
+
+  pcl::PointCloud<pcl::PointXYZI>::Ptr global_map_point_cloud_;
 
   bool enable_bag_ = false;
   const char* home_ = std::getenv("HOME");
@@ -475,7 +479,7 @@ private:
     double drone_y = transformStamped.transform.translation.y;
     double drone_z = transformStamped.transform.translation.z;
 
-    octomap::AbstractOcTree* raw_tree = octomap_msgs::binaryMsgToMap(*octomap_msg);
+    octomap::AbstractOcTree* raw_tree = octomap_msgs::msgToMap(*octomap_msg);
     std::unique_ptr<octomap::AbstractOcTree> abstract_tree(raw_tree);
     if (!abstract_tree)
     {
@@ -488,8 +492,8 @@ private:
       return;
     }
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr global_map_point_cloud(new pcl::PointCloud<pcl::PointXYZ>());
-    global_map_point_cloud->header.frame_id = world_link_;
+    global_map_point_cloud_->clear();
+    global_map_point_cloud_->header.frame_id = world_link_;
 
     octomap::point3d min_pt(drone_x - window_size_,
                             drone_y - window_size_,
@@ -502,13 +506,13 @@ private:
     {
       if (octree->isNodeOccupied(*it))
       {
-        global_map_point_cloud->push_back(pcl::PointXYZ(it.getX(), it.getY(), it.getZ()));
+        global_map_point_cloud_->push_back(pcl::PointXYZI(it.getX(), it.getY(), it.getZ(), it->getOccupancy()));
       }
     }
 
     sensor_msgs::msg::PointCloud2 global_map_point_cloud_msg;
-    pcl::toROSMsg(*global_map_point_cloud, global_map_point_cloud_msg);
-    global_map_point_cloud_msg.header.frame_id = global_map_point_cloud->header.frame_id;
+    pcl::toROSMsg(*global_map_point_cloud_, global_map_point_cloud_msg);
+    global_map_point_cloud_msg.header.frame_id = global_map_point_cloud_->header.frame_id;
     global_map_point_cloud_msg.header.stamp = octomap_msg->header.stamp;
     global_map_pub_->publish(global_map_point_cloud_msg);
   }
@@ -571,6 +575,7 @@ private:
           sync();
 
           clear_octomap();
+          global_map_point_cloud_->clear();
 
           latest_odom_msg_ = nullptr;
           latest_orientation_msg_ = nullptr;
