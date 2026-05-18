@@ -1,6 +1,17 @@
 CHANGELOG
 =========
 
+2026-05-17
+----------
+
+- Replace vendored `ldlidar_driver` folder with the official [ldlidar_stl_sdk](https://github.com/ldrobotSensorTeam/ldlidar_stl_sdk) git submodule
+
+  - Clone with `git clone --recurse-submodules` or run `git submodule update --init --recursive` after cloning
+- Improve the SLAM demo launch file to fully leverage lifecycle and composition:
+
+  - slam_toolbox lifecycle node is controlled by the same lifecycle manager as ldlidar_node
+  - slam_toolbox is loaded as component in the same container as ldlidar_node to leverage IPC and zero-copy on laser scan data
+
 2025-02-16
 ----------
 

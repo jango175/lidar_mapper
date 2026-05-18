@@ -13,39 +13,25 @@
 //  limitations under the License.
 ////////////////////////////////////////////////////////////////////////////////
 
+/**
+ * @file ldlidar_tools.hpp
+ * @brief Miscellaneous utility helpers for the LDLidar ROS2 component.
+ */
+
 #ifndef LDLIDAR_TOOLS_HPP_
 #define LDLIDAR_TOOLS_HPP_
 
-#include <rclcpp/rclcpp.hpp>
+#include <chrono>
 
 namespace tools
 {
-/*! \brief qos value to string
- * \param qos the value to convert
+
+/**
+ * @brief Returns the current host-system time as a nanosecond timestamp.
+ * @return Nanoseconds elapsed since the Unix epoch (system_clock).
  */
-std::string qos2str(rmw_qos_history_policy_t qos);
-
-/*! \brief qos value to string
- * \param qos the value to convert
- */
-std::string qos2str(rmw_qos_reliability_policy_t qos);
-
-/*! \brief qos value to string
- * \param qos the value to convert
- */
-std::string qos2str(rmw_qos_durability_policy_t qos);
-
-// /*! \brief units value to string
-//  * \param units the value to convert
-//  */
-// std::string to_string(ldlidar::UNITS val);
-
-// /*! \brief rotation value to string
-//  * \param rotation the value to convert
-//  */
-// std::string to_string(ldlidar::ROTATION val);
-
 uint64_t GetSystemTimeStamp(void);
+
 }  // namespace tools
 
 

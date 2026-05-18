@@ -52,7 +52,7 @@ LdLidarComponent::~LdLidarComponent()
 {
 }
 
-void LdLidarComponent::getParameters()
+bool LdLidarComponent::getParameters()
 {
   RCLCPP_INFO_STREAM(get_logger(), "****** NODE PARAMETERS ******");
 
@@ -63,7 +63,7 @@ void LdLidarComponent::getParameters()
   getCommParams();
 
   // LIDAR parameters
-  getLidarParams();
+  return getLidarParams();
 }
 
 void LdLidarComponent::getDebugParams()
@@ -103,28 +103,32 @@ void LdLidarComponent::getCommParams()
     " * Serial port: ");
 
   getParam(
+    "comm.baudrate", _baudrate, _baudrate, "Serial baudrate", false,
+    " * Baudrate: ");
+  getParam(
     "comm.timeout_msec", _readTimeOut_msec, _readTimeOut_msec, "Data reading timeout in msec",
     false, " * Timeout [msec]: ");
-  // <---- Communication
+
+    // <---- Communication
 }
 
-void LdLidarComponent::getLidarParams()
+bool LdLidarComponent::getLidarParams()
 {
   RCLCPP_INFO(get_logger(), "+++ LIDAR PARAMETERS +++");
   nav2_util::LifecycleNode::integer_range limits_int;
 
   // ----> Lidar config
   getParam("lidar.model", _lidarModel, _lidarModel, " * Lidar frame: ", "Name of the lidar frame");
-  if (_lidarModel == "LDLiDAR_LD06") {
+  if (_lidarModel == "LD06") {
     _lidarType = ldlidar::LDType::LD_06;
-  } else if (_lidarModel == "LDLiDAR_LD19") {
+  } else if (_lidarModel == "LD19") {
     _lidarType = ldlidar::LDType::LD_19;
-  } else if (_lidarModel == "LDLiDAR_STL27L") {
-    _lidarType = ldlidar::LDType::STL_27L;
   } else {
     RCLCPP_ERROR_STREAM(
       get_logger(), " !!! The parameter 'lidar.model' is not valid! -> " << _lidarModel.c_str() );
-    exit(EXIT_FAILURE);
+    RCLCPP_ERROR_STREAM(
+      get_logger(), "     * Valid values: 'LD06', 'LD19'");
+    return false;
   }
 
   getParam(
@@ -178,6 +182,8 @@ void LdLidarComponent::getLidarParams()
     "lidar.angle_crop_max", _angleCropMax, _angleCropMax, "Angle cropping maximum angle",
     false, " * Angle cropping max angle: ");
   // <---- Lidar config
+
+  return true;
 }
 
 nav2_util::CallbackReturn LdLidarComponent::on_configure(const lc::State & prev_state)
@@ -188,7 +194,9 @@ nav2_util::CallbackReturn LdLidarComponent::on_configure(const lc::State & prev_
                      << "] -> Inactive");
 
   // Initialize parameters from yaml file
-  getParameters();
+  if (!getParameters()) {
+    return nav2_util::CallbackReturn::ERROR;
+  }
 
   // ----> Initialize topics
   _scanTopic = _topicRoot + std::string("scan");
@@ -233,6 +241,10 @@ nav2_util::CallbackReturn LdLidarComponent::on_activate(const lc::State & prev_s
   // Activate publisher
   _scanPub->on_activate();
 
+  // Reset per-activation scan state
+  _firstScan = true;
+  _pubFreq = 0.0;
+
   // Start lidar thread
   startLidarThread();
 
@@ -253,11 +265,12 @@ nav2_util::CallbackReturn LdLidarComponent::on_deactivate(const lc::State & prev
   // destroy bond connection
   destroyBond();
 
-  // Dectivate publisher
+  // Deactivate publisher
   _scanPub->on_deactivate();
 
-  // Stop Lidar THread
+  // Stop lidar thread then close the driver (order matters)
   stopLidarThread();
+  _lidar->Stop();
 
   RCLCPP_INFO(
     get_logger(),
@@ -274,6 +287,7 @@ nav2_util::CallbackReturn LdLidarComponent::on_cleanup(const lc::State & prev_st
                                  << "] -> Unconfigured");
 
   _scanPub.reset();
+  _lidar.reset();
 
   RCLCPP_INFO(
     get_logger(),
@@ -309,8 +323,6 @@ void LdLidarComponent::publishLaserScan(ldlidar::Points2D & src, double lidar_sp
   float angle_min, angle_max, angle_increment;
   double scan_time;
   rclcpp::Time start_scan_time;
-  static rclcpp::Time end_scan_time;
-  static bool first_scan = true;
 
   int beam_size = 0;
 
@@ -321,14 +333,24 @@ void LdLidarComponent::publishLaserScan(ldlidar::Points2D & src, double lidar_sp
     beam_size = static_cast<int>(src.size());
   }
 
-  start_scan_time = this->now();
-  scan_time = (start_scan_time.seconds() - end_scan_time.seconds());
-
-  if (first_scan) {
-    first_scan = false;
-    end_scan_time = start_scan_time;
+  // Need at least 2 beams to form a valid scan
+  if (beam_size < 2) {
     return;
   }
+
+  start_scan_time = this->now();
+  scan_time = (start_scan_time.seconds() - _endScanTime.seconds());
+
+  if (_firstScan) {
+    _firstScan = false;
+    _endScanTime = start_scan_time;
+    return;
+  }
+
+  if (scan_time > 0.0) {
+    _pubFreq = 1.0 / scan_time;
+  }
+
   // Adjust the parameters according to the demand
   angle_min = 0;
   angle_max = (2 * M_PI);
@@ -378,6 +400,7 @@ void LdLidarComponent::publishLaserScan(ldlidar::Points2D & src, double lidar_sp
             get_logger(),
             "error index: %d, beam_size: %d, angle: %f, msg->angle_min: %f, msg->angle_increment: %f",
             index, beam_size, angle, angle_min, angle_increment);
+          continue;
         }
 
         if (_counterclockwise) {
@@ -407,7 +430,7 @@ void LdLidarComponent::publishLaserScan(ldlidar::Points2D & src, double lidar_sp
       }
     }
     _scanPub->publish(std::move(msg));
-    end_scan_time = start_scan_time;
+    _endScanTime = start_scan_time;
   }
 }
 
@@ -431,14 +454,14 @@ bool LdLidarComponent::initLidarComm()
     RCLCPP_INFO_STREAM(get_logger(), "***** LDLidar opened on port '" << _serialPort << "' *****");
   } else {
     RCLCPP_ERROR(get_logger(), "!!! LDLidar not opened !!!");
-    exit(EXIT_FAILURE);
+    return false;
   }
 
   if (_lidar->WaitLidarCommConnect(3000)) {
     RCLCPP_INFO(get_logger(), " * LDLidar communication OK");
   } else {
     RCLCPP_ERROR(get_logger(), " !!! LDLidar communication KO !!!");
-    exit(EXIT_FAILURE);
+    return false;
   }
 
   return true;
@@ -472,7 +495,7 @@ void LdLidarComponent::lidarThreadFunc()
   _publishing = false;
 
   ldlidar::Points2D laser_scan_points;
-  double lidar_scan_freq;
+  double lidar_scan_freq = 0.0;
 
   while (1) {
     // ----> Interruption check
