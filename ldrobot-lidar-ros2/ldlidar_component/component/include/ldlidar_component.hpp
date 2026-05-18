@@ -21,6 +21,7 @@
 #include <rcutils/logging_macros.h>
 #include <string>
 #include <memory>
+#include <atomic>
 #include <lifecycle_msgs/msg/transition.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -117,24 +118,25 @@ protected:
    * @param paramName The name of the parameter.
    * @param defValue The default value of the parameter.
    * @param outVal The output value of the parameter.
-   * @param log_info Optional log information.
-   * @param dynamic Whether the parameter is dynamic.
    * @param description The description of the parameter.
+   * @param dynamic Whether the parameter is dynamic.
+   * @param log_info Optional log information string printed after the value is loaded.
    * @param min The minimum value of the parameter.
    * @param max The maximum value of the parameter.
    */
   template<typename T>
   void getParam(
     std::string paramName, T defValue, T & outVal,
-    std::string log_info = std::string(),
-    bool dynamic = false,
     std::string description = std::string(),
+    bool dynamic = false,
+    std::string log_info = std::string(),
     T min = std::numeric_limits<T>::min(), T max = std::numeric_limits<T>::max());
 
   /**
    * @brief Get all parameters for the node.
+   * @return false if any parameter value is invalid.
    */
-  void getParameters();
+  bool getParameters();
 
   /**
    * @brief Get debug parameters for the node.
@@ -148,8 +150,9 @@ protected:
 
   /**
    * @brief Get lidar parameters for the node.
+   * @return false if any parameter value is invalid.
    */
-  void getLidarParams();
+  bool getLidarParams();
 
   /**
    * @brief Initialize the lidar device.
@@ -223,12 +226,17 @@ private:
 
   // ----> Threads
   std::thread _lidarThread; ///< Lidar thread.
-  bool _threadStop = false; ///< Thread stop flag.
+  std::atomic<bool> _threadStop{false}; ///< Thread stop flag.
   // <---- Threads
 
+  // ----> Scan state
+  bool _firstScan = true; ///< First scan flag, reset on each activation.
+  rclcpp::Time _endScanTime; ///< Timestamp of the previous scan, used for scan_time computation.
+  // <---- Scan state
+
   // ----> Diagnostic
-  double _pubFreq; ///< Publishing frequency.
-  bool _publishing; ///< Publishing flag.
+  double _pubFreq = 0.0; ///< Publishing frequency (Hz).
+  std::atomic<bool> _publishing{false}; ///< Publishing flag.
   // <---- Diagnostic
 };
 
