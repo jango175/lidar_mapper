@@ -222,7 +222,7 @@ public:
     mf_slice_scan_sub_.subscribe(this, scan_topic_, qos.get_rmw_qos_profile());
 
     mf_slice_scan_tf2_ = std::make_shared<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>>(
-      mf_slice_scan_sub_, *tf_buffer_, drone_link_, 10,
+      mf_slice_scan_sub_, *tf_buffer_, world_link_, 10,
       this->get_node_logging_interface(),
       this->get_node_clock_interface(),
       tf2::durationFromSec(mf_timeout)
@@ -400,19 +400,22 @@ private:
       return;
     }
 
+    // scan deskewing requires world frame
     rclcpp::Duration scan_duration = rclcpp::Duration::from_seconds(slice_scan_msg->ranges.size() * slice_scan_msg->time_increment);
     rclcpp::Time end_of_scan = rclcpp::Time(slice_scan_msg->header.stamp) + scan_duration;
-    if (!tf_buffer_->canTransform(drone_link_,
+    if (!tf_buffer_->canTransform(world_link_,
                                   slice_scan_msg->header.frame_id,
                                   end_of_scan,
                                   rclcpp::Duration::from_seconds(0.0)))
     {
-      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Waiting for TF data to cover the entire scan duration...");
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Waiting for TF data from: %s to %s",
+                           slice_scan_msg->header.frame_id.c_str(),
+                           world_link_.c_str());
       return;
     }
 
     sensor_msgs::msg::PointCloud2 sync_slice_point_cloud_msg;
-    laser_projector_.transformLaserScanToPointCloud(drone_link_, *slice_scan_msg, sync_slice_point_cloud_msg, *tf_buffer_);
+    laser_projector_.transformLaserScanToPointCloud(world_link_, *slice_scan_msg, sync_slice_point_cloud_msg, *tf_buffer_);
 
     // point cloud filtering
     sync_pcl_slice_->clear();
@@ -429,9 +432,31 @@ private:
     sor.setStddevMulThresh(sor_std_dev_mult_);
     sor.filter(*sync_pcl_slice_);
 
+    // transform back to drone frame for octomap
+    if (!tf_buffer_->canTransform(drone_link_,
+                                  sync_slice_point_cloud_msg.header.frame_id,
+                                  sync_slice_point_cloud_msg.header.stamp,
+                                  rclcpp::Duration::from_seconds(0.0)))
+    {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Waiting for TF data from: %s to %s",
+                           sync_slice_point_cloud_msg.header.frame_id.c_str(),
+                           drone_link_.c_str());
+      return;
+    }
+
+    geometry_msgs::msg::TransformStamped tf = tf_buffer_->lookupTransform(
+      drone_link_,
+      sync_pcl_slice_->header.frame_id,
+      sync_slice_point_cloud_msg.header.stamp,
+      rclcpp::Duration::from_seconds(0.0)
+    );
+    pcl_ros::transformPointCloud(*sync_pcl_slice_, *sync_pcl_slice_, tf);
+    sync_pcl_slice_->header.frame_id = drone_link_;
+
     sensor_msgs::msg::PointCloud2 filtered_sync_slice_point_cloud_msg;
     pcl::toROSMsg(*sync_pcl_slice_, filtered_sync_slice_point_cloud_msg);
-    filtered_sync_slice_point_cloud_msg.header = sync_slice_point_cloud_msg.header;
+    filtered_sync_slice_point_cloud_msg.header.frame_id = sync_pcl_slice_->header.frame_id;
+    filtered_sync_slice_point_cloud_msg.header.stamp = sync_slice_point_cloud_msg.header.stamp;
 
     sync_slice_point_cloud_pub_->publish(filtered_sync_slice_point_cloud_msg);
 
