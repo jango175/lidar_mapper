@@ -212,7 +212,7 @@ public:
     );
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_buffer_->setCreateTimerInterface(timer_interface);
-    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_, this);
     tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
 
     // services
@@ -321,10 +321,10 @@ private:
   message_filters::Subscriber<sensor_msgs::msg::LaserScan> mf_slice_scan_sub_;
   std::shared_ptr<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>> mf_slice_scan_tf2_;
 
-  mavros_msgs::msg::RCIn::SharedPtr latest_rc_msg_;
-  sensor_msgs::msg::LaserScan::SharedPtr latest_scan_msg_;
-  sensor_msgs::msg::Imu::SharedPtr latest_orientation_msg_;
-  nav_msgs::msg::Odometry::SharedPtr latest_odom_msg_;
+  mavros_msgs::msg::RCIn::ConstSharedPtr latest_rc_msg_;
+  sensor_msgs::msg::LaserScan::ConstSharedPtr latest_scan_msg_;
+  sensor_msgs::msg::Imu::ConstSharedPtr latest_orientation_msg_;
+  nav_msgs::msg::Odometry::ConstSharedPtr latest_odom_msg_;
 
   laser_geometry::LaserProjection laser_projector_;
   geometry_msgs::msg::TransformStamped drone_lidar_tf_;
@@ -393,7 +393,7 @@ private:
    * 
    * @param slice_scan_msg Laser slice scan message pointer
    */
-  void sync_slice_scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr slice_scan_msg)
+  void sync_slice_scan_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr slice_scan_msg)
   {
     if (script_start_state_ != 2)
     {
@@ -476,7 +476,7 @@ private:
    * 
    * @param octomap_msg Octomap message pointer
    */
-  void octomap_callback(const octomap_msgs::msg::Octomap::SharedPtr octomap_msg)
+  void octomap_callback(const octomap_msgs::msg::Octomap::ConstSharedPtr octomap_msg)
   {
     if (script_start_state_ != 2)
     {
@@ -547,7 +547,7 @@ private:
    * 
    * @param rc_msg RC channels message pointer
    */
-  void rc_callback(const mavros_msgs::msg::RCIn::SharedPtr rc_msg)
+  void rc_callback(const mavros_msgs::msg::RCIn::ConstSharedPtr rc_msg)
   {
     latest_rc_msg_ = rc_msg;
 
@@ -671,7 +671,7 @@ private:
    * 
    * @param scan_msg Laser scan message pointer
    */
-  void scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr scan_msg)
+  void scan_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr scan_msg)
   {
     latest_scan_msg_ = scan_msg;
 
@@ -692,7 +692,7 @@ private:
    * 
    * @param orientation_msg Orientation message pointer
    */
-  void orientation_callback(const sensor_msgs::msg::Imu::SharedPtr orientation_msg)
+  void orientation_callback(const sensor_msgs::msg::Imu::ConstSharedPtr orientation_msg)
   {
     latest_orientation_msg_ = orientation_msg;
 
@@ -713,7 +713,7 @@ private:
    * 
    * @param odom_msg Odometry message pointer
    */
-  void odom_callback(const nav_msgs::msg::Odometry::SharedPtr odom_msg)
+  void odom_callback(const nav_msgs::msg::Odometry::ConstSharedPtr odom_msg)
   {
     latest_odom_msg_ = odom_msg;
 
