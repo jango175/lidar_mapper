@@ -186,7 +186,7 @@ public:
 
     // publishers
     sync_slice_point_cloud_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(sync_slice_point_cloud_topic_, qos);
-    global_map_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(global_map_topic_, qos);
+    global_octomap_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(global_octomap_topic_, qos);
 
     // tf
     double lidar_roll = lidar_mount_roll_deg * M_PI / 180.0;
@@ -297,7 +297,7 @@ private:
   const std::string reset_octomap_service_ = "/octomap_server/reset";
 
   const std::string sync_slice_point_cloud_topic_ = "/lidar_mapper/sync_slice_point_cloud";
-  const std::string global_map_topic_ = "/lidar_mapper/global_map";
+  const std::string global_octomap_topic_ = "/lidar_mapper/global_octomap";
 
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
@@ -310,7 +310,7 @@ private:
   rclcpp::Client<std_srvs::srv::Empty>::SharedPtr reset_octomap_client_;
 
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr sync_slice_point_cloud_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr global_map_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr global_octomap_pub_;
 
   rclcpp::Subscription<mavros_msgs::msg::RCIn>::SharedPtr rc_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
@@ -330,7 +330,7 @@ private:
   geometry_msgs::msg::TransformStamped drone_lidar_tf_;
 
   pcl::PointCloud<pcl::PointXYZI>::Ptr sync_pcl_slice_ = pcl::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
-  pcl::PointCloud<pcl::PointXYZI>::Ptr global_map_point_cloud_ = pcl::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
+  pcl::PointCloud<pcl::PointXYZI>::Ptr global_octomap_point_cloud_ = pcl::make_shared<pcl::PointCloud<pcl::PointXYZI>>();
 
   double window_size_ = 20.0;
 
@@ -516,8 +516,8 @@ private:
       return;
     }
 
-    global_map_point_cloud_->clear();
-    global_map_point_cloud_->header.frame_id = world_link_;
+    global_octomap_point_cloud_->clear();
+    global_octomap_point_cloud_->header.frame_id = world_link_;
 
     octomap::point3d min_pt(drone_x - window_size_,
                             drone_y - window_size_,
@@ -530,15 +530,15 @@ private:
     {
       if (octree->isNodeOccupied(*it))
       {
-        global_map_point_cloud_->push_back(pcl::PointXYZI(it.getX(), it.getY(), it.getZ(), it->getOccupancy()));
+        global_octomap_point_cloud_->push_back(pcl::PointXYZI(it.getX(), it.getY(), it.getZ(), it->getOccupancy()));
       }
     }
 
-    sensor_msgs::msg::PointCloud2 global_map_point_cloud_msg;
-    pcl::toROSMsg(*global_map_point_cloud_, global_map_point_cloud_msg);
-    global_map_point_cloud_msg.header.frame_id = global_map_point_cloud_->header.frame_id;
-    global_map_point_cloud_msg.header.stamp = octomap_msg->header.stamp;
-    global_map_pub_->publish(global_map_point_cloud_msg);
+    sensor_msgs::msg::PointCloud2 global_octomap_point_cloud_msg;
+    pcl::toROSMsg(*global_octomap_point_cloud_, global_octomap_point_cloud_msg);
+    global_octomap_point_cloud_msg.header.frame_id = global_octomap_point_cloud_->header.frame_id;
+    global_octomap_point_cloud_msg.header.stamp = octomap_msg->header.stamp;
+    global_octomap_pub_->publish(global_octomap_point_cloud_msg);
   }
 
 
@@ -600,7 +600,7 @@ private:
 
           clear_octomap();
           sync_pcl_slice_->clear();
-          global_map_point_cloud_->clear();
+          global_octomap_point_cloud_->clear();
 
           latest_odom_msg_ = nullptr;
           latest_orientation_msg_ = nullptr;
