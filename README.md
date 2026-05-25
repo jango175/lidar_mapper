@@ -64,7 +64,7 @@ ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped "{
 
 ## Sources
 * https://github.com/jango175/lidar_mapper_visualizer
-* https://github.com/Myzhar/ldrobot-lidar-ros2
+* https://github.com/jango175/ldrobot-lidar-ros2
 * https://github.com/mavlink/mavros
 * https://github.com/OctoMap/octomap_mapping
 * https://github.com/OctoMap/octomap_rviz_plugins

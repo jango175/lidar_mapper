@@ -2,3 +2,7 @@
 	path = ego-planner-swarm
 	url = https://github.com/jango175/ego-planner-swarm.git
 	branch = ros2_version
+[submodule "ldrobot-lidar-ros2"]
+	path = ldrobot-lidar-ros2
+	url = https://github.com/jango175/ldrobot-lidar-ros2.git
+	branch = main
